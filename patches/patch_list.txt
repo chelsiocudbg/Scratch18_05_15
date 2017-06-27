@@ -1,0 +1,31 @@
+
+0001-cxgb4-cxgb4vf-Allocate-more-queues-for-25G-and-100G-.patch		9b86a8d19bd6406a10de5f924bf2a003a502d427
+0002-PCI-Turn-off-Request-Attributes-to-avoid-Chelsio-T5-.patch		c56d4450eb6886225a5a0bb231ad2cea9f03284a
+0003-iw_cxgb4-set-bad_wr-for-post_send-post_recv-errors.patch		4ff522ea47944ffd3d4d27023ace8bc6a722c834
+0004-iw_cxgb4-do-not-send-RX_DATA_ACK-CPLs-after-close-ab.patch		3bcf96e0183f5c863657cb6ae9adad307a0f6071
+0005-iw_cxgb4-don-t-block-in-destroy_qp-awaiting-the-last.patch		ad61a4c7a9b7ae7e10ca93b0d2b357e02c208e75
+0006-iw_cxgb4-free-EQ-queue-memory-on-last-deref.patch			c12a67fec8d99bb554e8d4e99120d418f1a39c87
+0007-iw_cxgb4-add-fast-path-for-small-REG_MR-operations.patch		49b53a93a64ab0aaec10851b004297a3ac885433
+0008-cxgb4-advertise-support-for-FR_NSMR_TPTE_WR.patch			086de575c14239f77ea0dbf2370738a105c753ea
+0009-iw_cxgb4-refactor-sq-rq-drain-logic.patch				4fe7c2962e110dfd58e61888514726aac419562f
+0010-cxgb4-Updating-firmware-to-fw-1.16.26.0-in-t4fw_vers.patch		0d909aa7c276584cc17413a7bec64d4fb5da2968
+0011-scsi-cxgb4i-use-cxgb4_tp_smt_idx-to-get-smt_idx.patch		e0eed8ab7379faba26f9d85a5904b8292dc4d8b9
+0012-scsi-cxgb4i-libcxgbi-add-active-open-cmd-for-T6-adap.patch		586be7cb694fdbb3a35cc35c03387ce0fc534572
+0013-scsi-cxgb4i-libcxgbi-cxgb4-add-T6-iSCSI-completion-f.patch		44830d8fd28a729729d14bb160341a6170631eb7
+0014-cxgb4-cxgb4vf-Display-25G-and-100G-link-speed.patch		5e78f7fd3743d430c44402268cbeddab8eeb3af8
+0015-cxgb4-Add-port-description-for-new-cards.patch			89eb9835b2657a902adb8d5e31f721a8004726b5
+0016-The-current-QP-FetchBurstMax-value-is-256B-which-is-.patch		b414fa01c31318383ae29d9d23cb9ca4184bbd86
+0017-iw_cxgb4-invalidate-the-mr-when-posting-a-read_w_inv.patch		5c6b2aaf9316fd0983c0c999d920306ddc65bd2d
+0018-cxgb4-Don-t-sleep-when-mbox-cmd-is-issued-from-inter.patch		5a20f5cfd7276862a8d21d75f83359840ed6e662
+0019-cxgb4-Check-for-firmware-errors-in-the-mailbox-comma.patch		f358738b1d64935b54430613691a6ef8c1f6d450
+0020-cxgb4-Force-cxgb4-driver-as-MASTER-in-kdump-kernel.patch		c5a8c0f3aa726db65b27481d284ca6c427c7a78f
+0021-cxgb4-Synchronize-access-to-mailbox.patch				4055ae5e6d00e09ff4206843638323d1d5dfd85d
+0022-cxgb4-Shutdown-adapter-if-firmware-times-out-or-erro.patch		3be0679b4a91930ca8d0c8a66b39058a698e70fe
+0023-cxgb4-avoid-disabling-FEC-by-default.patch				3bb4858fda1cac2ae677edb5134932af4c7f8ff8
+0024-cxgb4-reduce-resource-allocation-in-kdump-kernel.patch		85eacf3f42e8ba6ecce8c6d7c6c63a2f26cddd7d
+0025-cxgb4-fix-incorrect-cim_la-output-for-T6.patch			a97051f4553551d13e586ab3cb6ae13093a44a81
+0026-cxgb4-fix-to-bring-link-down-after-adapter-crash.patch		b3fd82207e2723247aac478e8756451fe85b1ac2
+0027-cxgb4-handle-interrupt-raised-when-FW-crashes.patch		d86cc04e22ead660eeb362b28119c7cb1fbd9d06
+0028-cxgb4-handle-serial-flash-interrupt.patch				38b6ec5008bb7019a705b576df345509f39d3f4b
+
+0001-cxgb4-add-cudbg-support-for-cxgb4.patch				Not available in upstream. This is Chelsio specific.
