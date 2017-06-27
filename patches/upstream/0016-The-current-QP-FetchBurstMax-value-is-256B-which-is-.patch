@@ -1,0 +1,38 @@
+From 895e60ae4d7346efc99895c9ec034b13d167c58c Mon Sep 17 00:00:00 2001
+From: Sai Vemuri <svemuri@redhat.com>
+Date: Tue, 24 Jan 2017 05:27:26 -0500
+Subject: [PATCH 16/28] The current QP FetchBurstMax value is 256B, which is
+ incorrect since a WR can exceed that value. The result being a partial WR
+ fetched by hardware, and a fatal "bad WR" error posted by the SGE.
+
+So bump the FetchBurstMax to 512B.
+---
+ drivers/infiniband/hw/cxgb4/qp.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/infiniband/hw/cxgb4/qp.c b/drivers/infiniband/hw/cxgb4/qp.c
+index 5dec639..88cb80a 100644
+--- a/drivers/infiniband/hw/cxgb4/qp.c
++++ b/drivers/infiniband/hw/cxgb4/qp.c
+@@ -321,7 +321,8 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
+ 		FW_RI_RES_WR_DCAEN_V(0) |
+ 		FW_RI_RES_WR_DCACPU_V(0) |
+ 		FW_RI_RES_WR_FBMIN_V(2) |
+-		FW_RI_RES_WR_FBMAX_V(2) |
++		(t4_sq_onchip(&wq->sq) ? FW_RI_RES_WR_FBMAX_V(2) :
++					 FW_RI_RES_WR_FBMAX_V(3)) |
+ 		FW_RI_RES_WR_CIDXFTHRESHO_V(0) |
+ 		FW_RI_RES_WR_CIDXFTHRESH_V(0) |
+ 		FW_RI_RES_WR_EQSIZE_V(eqsize));
+@@ -345,7 +346,7 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
+ 		FW_RI_RES_WR_DCAEN_V(0) |
+ 		FW_RI_RES_WR_DCACPU_V(0) |
+ 		FW_RI_RES_WR_FBMIN_V(2) |
+-		FW_RI_RES_WR_FBMAX_V(2) |
++		FW_RI_RES_WR_FBMAX_V(3) |
+ 		FW_RI_RES_WR_CIDXFTHRESHO_V(0) |
+ 		FW_RI_RES_WR_CIDXFTHRESH_V(0) |
+ 		FW_RI_RES_WR_EQSIZE_V(eqsize));
+-- 
+1.8.3.1
+

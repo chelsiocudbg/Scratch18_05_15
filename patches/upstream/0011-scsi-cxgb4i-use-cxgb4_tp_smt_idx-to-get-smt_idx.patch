@@ -1,0 +1,38 @@
+From 1eaa312250cc55519755ce705bbd49d31d941e34 Mon Sep 17 00:00:00 2001
+From: Sai Vemuri <svemuri@redhat.com>
+Date: Wed, 4 Jan 2017 01:29:41 -0500
+Subject: [PATCH 11/28] scsi: cxgb4i: use cxgb4_tp_smt_idx() to get smt_idx
+
+commit e0eed8ab7379faba26f9d85a5904b8292dc4d8b9
+Author: Varun Prakash <varun@chelsio.com>
+Date:   Thu Dec 1 20:28:27 2016 +0530
+
+    scsi: cxgb4i: use cxgb4_tp_smt_idx() to get smt_idx
+
+    cxgb4_tp_smt_idx() is defined in cxgb4 driver, it returns smt_idx for
+    T4,T5,T6 adapters.
+
+    Signed-off-by: Varun Prakash <varun@chelsio.com>
+    Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+---
+ drivers/scsi/cxgbi/cxgb4i/cxgb4i.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/scsi/cxgbi/cxgb4i/cxgb4i.c b/drivers/scsi/cxgbi/cxgb4i/cxgb4i.c
+index 25339a9..3578777 100644
+--- a/drivers/scsi/cxgbi/cxgb4i/cxgb4i.c
++++ b/drivers/scsi/cxgbi/cxgb4i/cxgb4i.c
+@@ -1426,8 +1426,8 @@ static int init_act_open(struct cxgbi_sock *csk)
+ 		csk->mtu = dst_mtu(csk->dst);
+ 	cxgb4_best_mtu(lldi->mtus, csk->mtu, &csk->mss_idx);
+ 	csk->tx_chan = cxgb4_port_chan(ndev);
+-	/* SMT two entries per row */
+-	csk->smac_idx = ((cxgb4_port_viid(ndev) & 0x7F)) << 1;
++	csk->smac_idx = cxgb4_tp_smt_idx(lldi->adapter_type,
++					 cxgb4_port_viid(ndev));
+ 	step = lldi->ntxq / lldi->nchan;
+ 	csk->txq_idx = cxgb4_port_idx(ndev) * step;
+ 	step = lldi->nrxq / lldi->nchan;
+-- 
+1.8.3.1
+

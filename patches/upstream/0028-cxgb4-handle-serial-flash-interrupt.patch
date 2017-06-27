@@ -1,0 +1,38 @@
+From 8b30f32847668b3621e009ddf3bb70e4a19c6ebd Mon Sep 17 00:00:00 2001
+From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+Date: Tue, 27 Jun 2017 17:38:42 +0530
+Subject: [PATCH 28/28] cxgb4: handle serial flash interrupt
+
+commit 38b6ec5008bb7019a705b576df345509f39d3f4b
+Author: Ganesh Goudar <ganeshgr@chelsio.com>
+Date:   Wed Jun 14 00:45:43 2017 +0530
+
+    cxgb4: handle serial flash interrupt
+
+    If SF bit is not cleared in PL_INT_CAUSE, subsequent non-data
+    interrupts are not raised.  Enable SF bit in Global Interrupt
+    Mask and handle it as non-fatal and hence eventually clear it.
+
+    Signed-off-by: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+    Signed-off-by: Ganesh Goudar <ganeshgr@chelsio.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/chelsio/cxgb4/t4_hw.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+index b6bdb50..17bd0a2 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+@@ -4423,7 +4423,7 @@ static void pl_intr_handler(struct adapter *adap)
+ #define PF_INTR_MASK (PFSW_F)
+ #define GLBL_INTR_MASK (CIM_F | MPS_F | PL_F | PCIE_F | MC_F | EDC0_F | \
+ 		EDC1_F | LE_F | TP_F | MA_F | PM_TX_F | PM_RX_F | ULP_RX_F | \
+-		CPL_SWITCH_F | SGE_F | ULP_TX_F)
++		CPL_SWITCH_F | SGE_F | ULP_TX_F | SF_F)
+ 
+ /**
+  *	t4_slow_intr_handler - control path interrupt handler
+-- 
+1.8.3.1
+

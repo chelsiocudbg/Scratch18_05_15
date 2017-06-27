@@ -1,0 +1,51 @@
+From 8c85aec01df4cf7915b46e9aa478a474c3d8549d Mon Sep 17 00:00:00 2001
+From: Sai Vemuri <svemuri@redhat.com>
+Date: Tue, 3 Jan 2017 13:51:46 -0500
+Subject: [PATCH 04/28] iw_cxgb4: do not send RX_DATA_ACK CPLs after
+ close/abort
+
+Function rx_data(), which handles ingress CPL_RX_DATA messages, was
+always sending an RX_DATA_ACK with the goal of updating the credits.
+However, if the RDMA connection is moved out of FPDU mode abruptly,
+then it is possible for iw_cxgb4 to process queued RX_DATA CPLs after HW
+has aborted the connection.  These CPLs should not trigger RX_DATA_ACKS.
+If they do, HW can see a READ after DELETE of the DB_LE hash entry for
+the tid and post a LE_DB HashTblMemCrcError.
+
+Signed-off-by: Steve Wise <swise@opengridcomputing.com>
+---
+ drivers/infiniband/hw/cxgb4/cm.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/infiniband/hw/cxgb4/cm.c b/drivers/infiniband/hw/cxgb4/cm.c
+index 8ed3b6c..eebb8c5 100644
+--- a/drivers/infiniband/hw/cxgb4/cm.c
++++ b/drivers/infiniband/hw/cxgb4/cm.c
+@@ -1861,20 +1861,21 @@ static int rx_data(struct c4iw_dev *dev, struct sk_buff *skb)
+ 	skb_trim(skb, dlen);
+ 	mutex_lock(&ep->com.mutex);
+ 
+-	/* update RX credits */
+-	update_rx_credits(ep, dlen);
+-
+ 	switch (ep->com.state) {
+ 	case MPA_REQ_SENT:
++		update_rx_credits(ep, dlen);
+ 		ep->rcv_seq += dlen;
+ 		disconnect = process_mpa_reply(ep, skb);
+ 		break;
+ 	case MPA_REQ_WAIT:
++		update_rx_credits(ep, dlen);
+ 		ep->rcv_seq += dlen;
+ 		disconnect = process_mpa_request(ep, skb);
+ 		break;
+ 	case FPDU_MODE: {
+ 		struct c4iw_qp_attributes attrs;
++
++		update_rx_credits(ep, dlen);
+ 		BUG_ON(!ep->com.qp);
+ 		if (status)
+ 			pr_err("%s Unexpected streaming data." \
+-- 
+1.8.3.1
+

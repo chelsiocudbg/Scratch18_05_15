@@ -1,0 +1,55 @@
+From 97174cefdfd0660358fd08ae81d52f32b3b21c0e Mon Sep 17 00:00:00 2001
+From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+Date: Tue, 27 Jun 2017 17:35:58 +0530
+Subject: [PATCH 24/28] cxgb4: reduce resource allocation in kdump kernel
+
+commit 85eacf3f42e8ba6ecce8c6d7c6c63a2f26cddd7d
+Author: Ganesh Goudar <ganeshgr@chelsio.com>
+Date:   Tue May 16 21:17:42 2017 +0530
+
+    cxgb4: reduce resource allocation in kdump kernel
+
+    When is_kdump_kernel() is true, reduce memory footprint of
+    cxgb4 by using a single "Queue Set".
+
+    Signed-off-by: Ganesh Goudar <ganeshgr@chelsio.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
+index 4c01b9d..215638a 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
+@@ -1348,7 +1348,7 @@ static u16 cxgb_select_queue(struct net_device *dev, struct sk_buff *skb,
+ 	 * The skb's priority is determined via the VLAN Tag Priority Code
+ 	 * Point field.
+ 	 */
+-	if (cxgb4_dcb_enabled(dev)) {
++	if (cxgb4_dcb_enabled(dev) && !is_kdump_kernel()) {
+ 		u16 vlan_tci;
+ 		int err;
+ 
+@@ -4366,7 +4366,7 @@ static void cfg_queues(struct adapter *adap)
+ 		struct port_info *pi = adap2pinfo(adap, i);
+ 
+ 		pi->first_qset = qidx;
+-		pi->nqsets = 8;
++		pi->nqsets = is_kdump_kernel() ? 1 : 8;
+ 		qidx += pi->nqsets;
+ 	}
+ #else /* !CONFIG_CHELSIO_T4_DCB */
+@@ -4384,6 +4384,9 @@ static void cfg_queues(struct adapter *adap)
+ 	if (is_kdump_kernel())
+ 		adap->params.offload = 0;
+ 
++	if (is_kdump_kernel())
++		q10g = 1;
++
+ 	for_each_port(adap, i) {
+ 		struct port_info *pi = adap2pinfo(adap, i);
+ 
+-- 
+1.8.3.1
+

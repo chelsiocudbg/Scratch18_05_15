@@ -1,0 +1,50 @@
+From 1a78c0c5f303baceb01f6d82ad668b00c695ad18 Mon Sep 17 00:00:00 2001
+From: Sai Vemuri <svemuri@redhat.com>
+Date: Tue, 3 Jan 2017 17:03:00 -0500
+Subject: [PATCH 10/28] cxgb4 : Updating firmware to fw-1.16.26.0 in
+ t4fw_version.h
+
+---
+ drivers/net/ethernet/chelsio/cxgb4/t4fw_version.h | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4fw_version.h b/drivers/net/ethernet/chelsio/cxgb4/t4fw_version.h
+index c4b262c..5fdaa16 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/t4fw_version.h
++++ b/drivers/net/ethernet/chelsio/cxgb4/t4fw_version.h
+@@ -36,8 +36,8 @@
+ #define __T4FW_VERSION_H__
+ 
+ #define T4FW_VERSION_MAJOR 0x01
+-#define T4FW_VERSION_MINOR 0x0E
+-#define T4FW_VERSION_MICRO 0x04
++#define T4FW_VERSION_MINOR 0x10
++#define T4FW_VERSION_MICRO 0x1A
+ #define T4FW_VERSION_BUILD 0x00
+ 
+ #define T4FW_MIN_VERSION_MAJOR 0x01
+@@ -45,8 +45,8 @@
+ #define T4FW_MIN_VERSION_MICRO 0x00
+ 
+ #define T5FW_VERSION_MAJOR 0x01
+-#define T5FW_VERSION_MINOR 0x0E
+-#define T5FW_VERSION_MICRO 0x04
++#define T5FW_VERSION_MINOR 0x10
++#define T5FW_VERSION_MICRO 0x1A
+ #define T5FW_VERSION_BUILD 0x00
+ 
+ #define T5FW_MIN_VERSION_MAJOR 0x00
+@@ -54,8 +54,8 @@
+ #define T5FW_MIN_VERSION_MICRO 0x00
+ 
+ #define T6FW_VERSION_MAJOR 0x01
+-#define T6FW_VERSION_MINOR 0x0E
+-#define T6FW_VERSION_MICRO 0x04
++#define T6FW_VERSION_MINOR 0x10
++#define T6FW_VERSION_MICRO 0x1A
+ #define T6FW_VERSION_BUILD 0x00
+ 
+ #define T6FW_MIN_VERSION_MAJOR 0x00
+-- 
+1.8.3.1
+

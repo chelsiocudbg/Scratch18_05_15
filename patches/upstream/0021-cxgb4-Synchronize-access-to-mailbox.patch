@@ -1,0 +1,180 @@
+From a418475d7c2430daf78eebba77a5a9b572f8d5ca Mon Sep 17 00:00:00 2001
+From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+Date: Tue, 27 Jun 2017 16:09:37 +0530
+Subject: [PATCH 21/28] cxgb4: Synchronize access to mailbox
+
+commit 4055ae5e6d00e09ff4206843638323d1d5dfd85d
+Author: Hariprasad Shenai <hariprasad@chelsio.com>
+Date:   Fri Jan 6 08:47:20 2017 +0530
+
+    cxgb4: Synchronize access to mailbox
+
+    The issue comes when there are multiple threads attempting to use
+    the mailbox facility at the same time.
+    When DCB operations and interface up/down is run in a loop for every
+    0.1 sec, we observed mailbox collisions. And out of the two commands
+    one would fail with the present code, since we don't queue the second
+    command.
+
+    To overcome the above issue, added a queue to access the mailbox.
+    Whenever a mailbox command is issued add it to the queue. If its at
+    the head issue the mailbox command, else wait for the existing command
+    to complete. Usually command takes less than a milli-second to
+    complete.
+
+    Also timeout from the loop, if the command under execution takes
+    long time to run.
+
+    In reality, the number of mailbox access collisions is going to be
+    very rare since no one runs such abusive script.
+
+    Signed-off-by: Hariprasad Shenai <hariprasad@chelsio.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4.h      |  8 ++++
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c |  3 ++
+ drivers/net/ethernet/chelsio/cxgb4/t4_hw.c      | 63 ++++++++++++++++++++++++-
+ 3 files changed, 72 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
+index 68ff635..fc8a953 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
++++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
+@@ -720,6 +720,10 @@ struct hash_mac_addr {
+ 	u8 addr[ETH_ALEN];
+ };
+ 
++struct mbox_list {
++	struct list_head list;
++};
++
+ struct adapter {
+ 	void __iomem *regs;
+ 	void __iomem *bar2;
+@@ -771,6 +775,10 @@ struct adapter {
+ 	struct work_struct db_drop_task;
+ 	bool tid_release_task_busy;
+ 
++	/* lock for mailbox cmd list */
++	spinlock_t mbox_lock;
++	struct mbox_list mlist;
++
+ 	struct dentry *debugfs_root;
+ 	u32 use_bd;     /* Use SGE Back Door intfc for reading SGE Contexts */
+ 	u32 trace_rss;	/* 1 implies that different RSS flit per filter is
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
+index d6517c4..fee28bc 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
+@@ -4875,6 +4875,9 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 
+ 	spin_lock_init(&adapter->stats_lock);
+ 	spin_lock_init(&adapter->tid_release_lock);
++	spin_lock_init(&adapter->mbox_lock);
++
++	INIT_LIST_HEAD(&adapter->mlist.list);
+ 
+ 	INIT_WORK(&adapter->tid_release_task, process_tid_release_list);
+ 	INIT_WORK(&adapter->db_full_task, process_db_full);
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+index adc9062..a559bf5 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+@@ -269,6 +269,7 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
+ 		1, 1, 3, 5, 10, 10, 20, 50, 100, 200
+ 	};
+ 
++	struct mbox_list entry;
+ 	u32 v;
+ 	u64 res;
+ 	int i, ms, delay_idx, ret;
+@@ -293,12 +294,64 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
+ 		timeout = -timeout;
+ 	}
+ 
++	/* Queue ourselves onto the mailbox access list.  When our entry is at
++	 * the front of the list, we have rights to access the mailbox.  So we
++	 * wait [for a while] till we're at the front [or bail out with an
++	 * EBUSY] ...
++	 */
++	spin_lock(&adap->mbox_lock);
++	list_add_tail(&entry.list, &adap->mlist.list);
++	spin_unlock(&adap->mbox_lock);
++
++	delay_idx = 0;
++	ms = delay[0];
++
++	for (i = 0; ; i += ms) {
++		/* If we've waited too long, return a busy indication.  This
++		 * really ought to be based on our initial position in the
++		 * mailbox access list but this is a start.  We very rearely
++		 * contend on access to the mailbox ...
++		 */
++		if (i > FW_CMD_MAX_TIMEOUT) {
++			spin_lock(&adap->mbox_lock);
++			list_del(&entry.list);
++			spin_unlock(&adap->mbox_lock);
++			ret = -EBUSY;
++			return ret;
++		}
++
++		/* If we're at the head, break out and start the mailbox
++		 * protocol.
++		 */
++		if (list_first_entry(&adap->mlist.list, struct mbox_list,
++				     list) == &entry)
++			break;
++
++		/* Delay for a bit before checking again ... */
++		if (sleep_ok) {
++			ms = delay[delay_idx];  /* last element may repeat */
++			if (delay_idx < ARRAY_SIZE(delay) - 1)
++				delay_idx++;
++			msleep(ms);
++		} else {
++			mdelay(ms);
++		}
++	}
++
++	/* Loop trying to get ownership of the mailbox.  Return an error
++	 * if we can't gain ownership.
++	 */
+ 	v = MBOWNER_G(t4_read_reg(adap, ctl_reg));
+ 	for (i = 0; v == MBOX_OWNER_NONE && i < 3; i++)
+ 		v = MBOWNER_G(t4_read_reg(adap, ctl_reg));
+ 
+-	if (v != MBOX_OWNER_DRV)
+-		return v ? -EBUSY : -ETIMEDOUT;
++	if (v != MBOX_OWNER_DRV) {
++		spin_lock(&adap->mbox_lock);
++		list_del(&entry.list);
++		spin_unlock(&adap->mbox_lock);
++		ret = (v == MBOX_OWNER_FW) ? -EBUSY : -ETIMEDOUT;
++		return ret;
++	}
+ 
+ 	for (i = 0; i < size; i += 8)
+ 		t4_write_reg64(adap, data_reg + i, be64_to_cpu(*p++));
+@@ -339,6 +392,9 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
+ 			if (FW_CMD_RETVAL_G((int)res))
+ 				dump_mbox(adap, mbox, data_reg);
+ 			t4_write_reg(adap, ctl_reg, 0);
++			spin_lock(&adap->mbox_lock);
++			list_del(&entry.list);
++			spin_unlock(&adap->mbox_lock);
+ 			return -FW_CMD_RETVAL_G((int)res);
+ 		}
+ 	}
+@@ -348,6 +404,9 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
+ 	dev_err(adap->pdev_dev, "command %#x in mailbox %d timed out\n",
+ 		*(const u8 *)cmd, mbox);
+ 	t4_report_fw_error(adap);
++	spin_lock(&adap->mbox_lock);
++	list_del(&entry.list);
++	spin_unlock(&adap->mbox_lock);
+ 	return ret;
+ }
+ 
+-- 
+1.8.3.1
+

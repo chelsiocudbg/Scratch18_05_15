@@ -1,0 +1,3 @@
+To install firmware/config files:
+
+cp -P <pathto>/SW_Patches/firmware/* /lib/firmware/cxgb4

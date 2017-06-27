@@ -1,0 +1,42 @@
+From 43c6514ad2d3c80001356e6ddc165d0b9ba4ea33 Mon Sep 17 00:00:00 2001
+From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+Date: Tue, 27 Jun 2017 17:37:51 +0530
+Subject: [PATCH 26/28] cxgb4: fix to bring link down after adapter crash
+
+ommit b3fd82207e2723247aac478e8756451fe85b1ac2
+Author: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+Date:   Thu Jun 8 10:52:11 2017 +0530
+
+    cxgb4: fix to bring link down after adapter crash
+
+    Use PORT_REG for T4 and T5_PORT_REG for > T4 to write to correct
+    register to bring down link during shutdown after adapter crash.
+
+    Signed-off-by: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+    Signed-off-by: Ganesh Goudar <ganeshgr@chelsio.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/net/ethernet/chelsio/cxgb4/t4_hw.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+index f73bf1a..50914ca 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+@@ -7510,10 +7510,9 @@ int t4_shutdown_adapter(struct adapter *adapter)
+ 	t4_intr_disable(adapter);
+ 	t4_write_reg(adapter, DBG_GPIO_EN_A, 0);
+ 	for_each_port(adapter, port) {
+-		u32 a_port_cfg = PORT_REG(port,
+-					  is_t4(adapter->params.chip)
+-					  ? XGMAC_PORT_CFG_A
+-					  : MAC_PORT_CFG_A);
++		u32 a_port_cfg = is_t4(adapter->params.chip) ?
++				       PORT_REG(port, XGMAC_PORT_CFG_A) :
++				       T5_PORT_REG(port, MAC_PORT_CFG_A);
+ 
+ 		t4_write_reg(adapter, a_port_cfg,
+ 			     t4_read_reg(adapter, a_port_cfg)
+-- 
+1.8.3.1
+
