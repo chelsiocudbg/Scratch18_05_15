@@ -28,4 +28,6 @@
 0027-cxgb4-handle-interrupt-raised-when-FW-crashes.patch		d86cc04e22ead660eeb362b28119c7cb1fbd9d06
 0028-cxgb4-handle-serial-flash-interrupt.patch				38b6ec5008bb7019a705b576df345509f39d3f4b
 
-0001-cxgb4-add-cudbg-support-for-cxgb4.patch				Not available in upstream. This is Chelsio specific.
+0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
+0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
+0003-cxgb4-collect-cudbg-debug-logs-during-kernel-crash.patch		Not available in upstream.
