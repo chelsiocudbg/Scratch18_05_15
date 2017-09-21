@@ -27,6 +27,10 @@
 0026-cxgb4-fix-to-bring-link-down-after-adapter-crash.patch		b3fd82207e2723247aac478e8756451fe85b1ac2
 0027-cxgb4-handle-interrupt-raised-when-FW-crashes.patch		d86cc04e22ead660eeb362b28119c7cb1fbd9d06
 0028-cxgb4-handle-serial-flash-interrupt.patch				38b6ec5008bb7019a705b576df345509f39d3f4b
+0029-cxgb4-Use-more-common-logging-style.patch				700456bd25946ef531773d1ad2dd511e1cc4515e
+0030-cxgb4-Convert-PDBG-to-pr_debug.patch				a9a42886d0b3b989166472b7ea59b1c157d90f9b
+0031-iw_cxgb4-Remove-__func__-parameter-from-pr_debug.patch		Patch submitted upstream - https://patchwork.kernel.org/patch/9960929/
+0032-iw_cxgb4-change-pr_debug-to-appropriate-log-level.patch		Patch submitted upstream - https://patchwork.kernel.org/patch/9960935/
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
