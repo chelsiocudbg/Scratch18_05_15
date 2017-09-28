@@ -471,6 +471,7 @@ PROTO_CTRL="Control"
 PROTO_RDMA_CTRL="RDMA-Control"
 PROTO_RDMA_CIQ="RDMA-CIQ"
 PROTO_RDMA_CPL="RDMA-CPL"
+PROTO_CRYPTO="Crypto"
 QID_TXQ="TxQ"
 QID_RSPQ="RspQ"
 QID_FL="FL"
@@ -492,6 +493,12 @@ function collect_qdesc_utils
 	elif [[ $proto_type == $PROTO_TOE ]] && [[ $qidtype == $QID_RSPQ ]];then
 		qtype="rsp"
 	elif [[ $proto_type == $PROTO_TOE ]] && [[ $qidtype == $QID_FL ]];then
+		qtype="fl"
+	elif [[ $proto_type == $PROTO_CRYPTO ]] && [[ $qidtype == $QID_TXQ ]];then
+		qtype="crypto"
+	elif [[ $proto_type == $PROTO_CRYPTO ]] && [[ $qidtype == $QID_RSPQ ]];then
+		qtype="rsp"
+	elif [[ $proto_type == $PROTO_CRYPTO ]] && [[ $qidtype == $QID_FL ]];then
 		qtype="fl"
 	elif [[ $proto_type == $PROTO_CTRL ]];then
 		qtype="ctrl"
@@ -527,11 +534,12 @@ function collect_qdesc_utils
 	echo "Collecting qdesc for \"$proto_type\" with Qtype \"$qtype\""
 	# replacing proto type like "RDMA Control", "RDMA-CIQ" to "RDMA_Control" "RDMA_CIQ" for dir
 	proto_type=$(echo $proto_type | sed 's/ /_/g' | sed 's/-/_/g')
-	mkdir -p $qdesc_dir/$proto_type
+	mkdir -p $qdesc_dir/$proto_type/$qtype
+	file_dir=$qdesc_dir/$proto_type/$qtype
 	for qid in $qids; do
 		cmd="cxgbtool $ch_intfs qdesc $qtype $qid 0 ${qsizesarr[i]}"
 		qdesc=$($cmd)
-		qdesc_file=$qdesc_dir/$proto_type/qid_$qid
+		qdesc_file=$file_dir/qid_$qid
 		printf "%s\n" "$qdesc" > $qdesc_file 
 		i=$((i+1))
 	done
@@ -662,6 +670,9 @@ function collect_qdesc
 	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_RDMA_CTRL 
 	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_RDMA_CIQ 
 	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_RDMA_CPL 
+	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_CRYPTO $QID_TXQ 
+	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_CRYPTO $QID_RSPQ
+	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_CRYPTO $QID_FL
 	echo -e "\n-------------------------------------------------"
 }
 
