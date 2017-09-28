@@ -548,7 +548,7 @@ function is_intfs_for_bus
 
 	eth_bus=$(ethtool  -i $intfs | awk '/bus-info/ {print $2}')
 	eth_bus=$(echo $eth_bus | sed -e 's/\.//g' | sed -e 's/\://g')
-	if [[ "$eth_bus" -eq "$busp" ]];then
+	if [[ "$eth_bus" == "$busp" ]];then
 		echo "1"
 		return
 	fi
