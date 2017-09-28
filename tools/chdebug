@@ -791,6 +791,63 @@ function collect_iw_cxgb4_debugfs
 	echo -e "-------------------------------------------------"
 }
 
+function collect_csiostor_pf5_debugfs
+{
+	driver="csiostor"
+	echo -e "\n-------------------------------------------------"
+	echo "Collecting $driver pf 5 debugfs"
+	res=$(is_driver_loaded $driver)
+	if [[ $res == 0 ]]; then
+		echo "$driver driver is not loaded"
+		echo -e "-------------------------------------------------"
+		return
+	fi
+
+	get_debugfs_entity "dump_vaddr" $driver
+	get_debugfs_entity "hw" $driver
+	get_debugfs_entity "hw_stats" $driver
+	get_debugfs_entity "iscsi_sessions" $driver
+	get_debugfs_entity "sge_queue_entry" $driver
+	get_debugfs_entity "sge_queues" $driver
+	get_debugfs_entity "trace_buf" $driver
+
+	echo -e "-------------------------------------------------"
+}
+
+function collect_csiostor_pf6_debugfs
+{
+	driver="csiostor"
+	echo -e "\n-------------------------------------------------"
+	echo "Collecting $driver pf 6 debugfs"
+	res=$(is_driver_loaded $driver)
+	if [[ $res == 0 ]]; then
+		echo "$driver driver is not loaded"
+		echo -e "-------------------------------------------------"
+		return
+	fi
+
+	get_debugfs_entity "fcfs" $driver
+	get_debugfs_entity "lnodes" $driver
+	get_debugfs_entity "lnodes_stats" $driver
+	get_debugfs_entity "rnodes" $driver
+	get_debugfs_entity "rnodes_stats" $driver
+
+	echo -e "-------------------------------------------------"
+}
+
+function change_pf
+{
+	if [[ $# -eq 1 ]] ; then
+		pf=$1
+	else
+		pf=4
+	fi 
+
+	busp=$(echo $busp | sed s/'\w*$'//)$pf
+	extract_debugfs_dir=$debugfs_dir/$busp
+	mkdir -p $extract_debugfs_dir
+}
+
 echo "Collecting OS debug logs at $logfile"
 echo "This may take sometime, Please Wait.."
 echo > $logfile
@@ -885,8 +942,8 @@ for buspath in ${fbuspath[*]} ; do
 		mount none $debugfs_path -t debugfs
 	fi
 
-	extract_debugfs_dir=$debugfs_dir/$busp
-	mkdir -p $extract_debugfs_dir
+	# collecting debugfs from pf 4
+	change_pf 4
 
 	collect_cxgb4_debugfs
 
@@ -899,5 +956,13 @@ for buspath in ${fbuspath[*]} ; do
 	collect_qdesc
 
 	collect_cudbg_mc_entities $buspath
+
+	# collecting debugfs from pf 5
+	change_pf 5
+	collect_csiostor_pf5_debugfs
+
+	# collecting debugfs from pf 6
+	change_pf 6
+	collect_csiostor_pf6_debugfs
 done
 create_tar_package "_with_cudbg" 
