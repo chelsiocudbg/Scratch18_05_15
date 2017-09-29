@@ -33,6 +33,7 @@
 0032-iw_cxgb4-drop-listen-destroy-replies-if-no-ep-found.patch		3c8415cc7aff467faba25841fb859660ac14a04e
 0033-iw_cxgb4-remove-the-stid-on-listen-create-failure.patch		8b1bbf36b7452c4acb20e91948eaa5e225ea6978
 0034-iw_cxgb4-Remove-__func__-parameter-from-pr_debug.patch		548ddb19afbabf8f7af7a900c19d0f0705d6dc90
+0035-iw_cxgb4-change-pr_debug-to-appropriate-log-level.patch		4d45b7573ba74a278652b0566d779c2aa7ea3df1
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
