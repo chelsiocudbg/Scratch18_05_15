@@ -29,6 +29,7 @@
 0028-cxgb4-handle-serial-flash-interrupt.patch				38b6ec5008bb7019a705b576df345509f39d3f4b
 0029-cxgb4-Use-more-common-logging-style.patch				700456bd25946ef531773d1ad2dd511e1cc4515e
 0030-cxgb4-Convert-PDBG-to-pr_debug.patch				a9a42886d0b3b989166472b7ea59b1c157d90f9b
+0031-iw_cxgb4-put-ep-reference-in-pass_accept_req.patch			3d318605f5e32ff44fb290d9b67573b34213c4c8
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
