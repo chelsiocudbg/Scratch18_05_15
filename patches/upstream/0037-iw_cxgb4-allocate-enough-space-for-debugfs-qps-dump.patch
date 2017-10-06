@@ -1,0 +1,37 @@
+From 4593ba25c557bb72f751f960165fd08d37f8db79 Mon Sep 17 00:00:00 2001
+From: Potnuri Bharat Teja <bharat@chelsio.com>
+Date: Fri, 6 Oct 2017 17:53:26 +0530
+Subject: [PATCH 37/48] iw_cxgb4: allocate enough space for debugfs "qps" dump
+
+commit 68cebcab59fbfbab5827fcc44e04cd31da02041b
+Author: Hariprasad S <hariprasad@chelsio.com>
+Date:   Fri Jun 10 01:05:12 2016 +0530
+
+	RDMA/iw_cxgb4: allocate enough space for debugfs "qps" dump
+
+	With IPv6 addresses, the "qps" debugfs is running out of space and
+	truncating the output.  Bump the required size accordingly.
+
+	Signed-off-by: Steve Wise <swise@opengridcomputing.com>
+	Signed-off-by: Hariprasad Shenai <hariprasad@chelsio.com>
+	Signed-off-by: Doug Ledford <dledford@redhat.com>
+---
+ drivers/infiniband/hw/cxgb4/device.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/infiniband/hw/cxgb4/device.c b/drivers/infiniband/hw/cxgb4/device.c
+index 7f869bdd3638..8760f602c40d 100644
+--- a/drivers/infiniband/hw/cxgb4/device.c
++++ b/drivers/infiniband/hw/cxgb4/device.c
+@@ -317,7 +317,7 @@ static int qp_open(struct inode *inode, struct file *file)
+ 	idr_for_each(&qpd->devp->qpidr, count_idrs, &count);
+ 	spin_unlock_irq(&qpd->devp->lock);
+ 
+-	qpd->bufsize = count * 128;
++	qpd->bufsize = count * 180;
+ 	qpd->buf = vmalloc(qpd->bufsize);
+ 	if (!qpd->buf) {
+ 		kfree(qpd);
+-- 
+2.5.3
+
