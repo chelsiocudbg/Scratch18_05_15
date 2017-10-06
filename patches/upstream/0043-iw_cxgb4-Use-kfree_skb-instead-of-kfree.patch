@@ -1,0 +1,90 @@
+From f7cb943b848e1c7ce242245731a5574de1d3d70e Mon Sep 17 00:00:00 2001
+From: Potnuri Bharat Teja <bharat@chelsio.com>
+Date: Fri, 6 Oct 2017 18:35:45 +0530
+Subject: [PATCH 43/48] iw_cxgb4: Use kfree_skb instead of kfree
+
+commit 56b2eca3fea8ea4fb6ec732b98470a09385cb1eb
+Author: Hariprasad S <hariprasad@chelsio.com>
+Date:   Thu Jun 30 11:44:33 2016 +0530
+
+	RDMA/iw_cxgb4: Use kfree_skb instead of kfree
+
+	The commit 0f8ab0b6e91b4d53 ("RDMA/iw_cxgb4: Low resource fixes for Memory
+	registration") from Jun 10, 2016, leads to the following static checker
+	warning:
+
+			drivers/infiniband/hw/cxgb4/mem.c:612 c4iw_alloc_mw()
+			error: use kfree_skb() here instead of kfree(mhp->dereg_skb)
+
+	Also fixes skb leak in c4iw_dealloc_mw
+
+	Fixes: 0f8ab0b6e91b4d53 ("RDMA/iw_cxgb4: Low resource fixes for Memory registration")
+
+	Reported-by: Dan Carpenter <dan.carpenter@oracle.com>
+	Signed-off-by: Steve Wise <swise@opengridcomputing.com>
+	Signed-off-by: Hariprasad Shenai <hariprasad@chelsio.com>
+	Signed-off-by: Doug Ledford <dledford@redhat.com>
+---
+ drivers/infiniband/hw/cxgb4/mem.c | 26 +++++++++++++++-----------
+ 1 file changed, 15 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/infiniband/hw/cxgb4/mem.c b/drivers/infiniband/hw/cxgb4/mem.c
+index a95e53a6a6f6..921907731831 100644
+--- a/drivers/infiniband/hw/cxgb4/mem.c
++++ b/drivers/infiniband/hw/cxgb4/mem.c
+@@ -588,16 +588,13 @@ struct ib_mw *c4iw_alloc_mw(struct ib_pd *pd, enum ib_mw_type type,
+ 
+ 	mhp->dereg_skb = alloc_skb(SGE_MAX_WR_LEN, GFP_KERNEL);
+ 	if (!mhp->dereg_skb) {
+-		kfree(mhp);
+-		return ERR_PTR(-ENOMEM);
++		ret = -ENOMEM;
++		goto free_mhp;
+ 	}
+ 
+ 	ret = allocate_window(&rhp->rdev, &stag, php->pdid);
+-	if (ret) {
+-		kfree(mhp->dereg_skb);
+-		kfree(mhp);
+-		return ERR_PTR(ret);
+-	}
++	if (ret)
++		goto free_skb;
+ 	mhp->rhp = rhp;
+ 	mhp->attr.pdid = php->pdid;
+ 	mhp->attr.type = FW_RI_STAG_MW;
+@@ -605,13 +602,19 @@ struct ib_mw *c4iw_alloc_mw(struct ib_pd *pd, enum ib_mw_type type,
+ 	mmid = (stag) >> 8;
+ 	mhp->ibmw.rkey = stag;
+ 	if (insert_handle(rhp, &rhp->mmidr, mhp, mmid)) {
+-		deallocate_window(&rhp->rdev, mhp->attr.stag, mhp->dereg_skb);
+-		kfree(mhp->dereg_skb);
+-		kfree(mhp);
+-		return ERR_PTR(-ENOMEM);
++		ret = -ENOMEM;
++		goto dealloc_win;
+ 	}
+ 	pr_debug("mmid 0x%x mhp %p stag 0x%x\n", mmid, mhp, stag);
+ 	return &(mhp->ibmw);
++
++dealloc_win:
++	deallocate_window(&rhp->rdev, mhp->attr.stag, mhp->dereg_skb);
++free_skb:
++	kfree_skb(mhp->dereg_skb);
++free_mhp:
++	kfree(mhp);
++	return ERR_PTR(ret);
+ }
+ 
+ int c4iw_dealloc_mw(struct ib_mw *mw)
+@@ -625,6 +628,7 @@ int c4iw_dealloc_mw(struct ib_mw *mw)
+ 	mmid = (mw->rkey) >> 8;
+ 	remove_handle(rhp, &rhp->mmidr, mmid);
+ 	deallocate_window(&rhp->rdev, mhp->attr.stag, mhp->dereg_skb);
++	kfree_skb(mhp->dereg_skb);
+ 	kfree(mhp);
+ 	pr_debug("ib_mw %p mmid 0x%x ptr %p\n", mw, mmid, mhp);
+ 	return 0;
+-- 
+2.5.3
+
