@@ -59,6 +59,7 @@
 0058-cxgb4-collect-TP-dump.patch					4359cf33680c3f276c6bba11730836c41d3540a2
 0059-cxgb4-collect-hardware-module-dumps.patch				270d39bf324ecdb9ab3f9c521e6b7fd9cc6c27b8
 0060-cxgb4-collect-IBQ-and-OBQ-dumps.patch				7c075ce221cf10a7aaef96b002d1d4c5dc715822
+0061-cxgb4-fix-overflow-in-collecting-IBQ-and-OBQ-dump.patch		acfdf7eabea4186a386ba5e656f0c739563cb1a5
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
