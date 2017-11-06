@@ -57,6 +57,7 @@
 0056-cxgb4-collect-firmware-mbox-and-device-log-dump.patch		844d1b6f0ef8051a1ac0403327ab881dd4d101a3
 0057-cxgb4-update-API-for-TP-indirect-register-access.patch		5ccf9d049615994349e9b0a1f0d4b9a398b9b0c2
 0058-cxgb4-collect-TP-dump.patch					4359cf33680c3f276c6bba11730836c41d3540a2
+0059-cxgb4-collect-hardware-module-dumps.patch				270d39bf324ecdb9ab3f9c521e6b7fd9cc6c27b8
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
