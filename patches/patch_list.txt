@@ -47,6 +47,7 @@
 0046-iw_cxgb4-allocate-wait-object-for-each-qp-object.patch		7088a9ba624599696f920eac552eac69366c8440
 0047-iw_cxgb4-allocate-wait-object-for-each-ep-object.patch		ef885dc66c29dd8e6f6a12f164ed11237323c234
 0048-iw_cxgb4-add-referencing-to-wait-objects.patch			2015f26cfadec126265fabfbb0e6566e2cca94b4
+0049-cxgb4-add-new-routine-to-get-adapter-info.patch			0de727383c46510f12932d32e4b66292854be508
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
