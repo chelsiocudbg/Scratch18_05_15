@@ -62,6 +62,7 @@
 0061-cxgb4-fix-overflow-in-collecting-IBQ-and-OBQ-dump.patch		acfdf7eabea4186a386ba5e656f0c739563cb1a5
 0062-cxgb4-collect-hardware-LA-dumps.patch				27887bc7cb7fc5a0a3b8f4b0f27b332c8121515b
 0063-cxgb4-collect-CIM-queue-configuration-dump.patch			3044d0fb016ecd953724c966bede8c8626f32bd5
+0064-cxgb4-collect-RSS-dumps.patch					28b445561fbac2e3c9886231b0a414336878e20f
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
