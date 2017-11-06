@@ -51,6 +51,7 @@
 0050-cxgb4-Add-support-to-enable-logging-of-firmware-mail.patch		7f080c3f2ff091c095248f670bb34308f141ff7a
 0051-cxgb4-display-serial-config-and-vpd-versions.patch			760446f967678e14ee1b6464ee1bb8562f299fa6
 0052-cxgb4-Fix-stack-out-of-bounds-read-due-to-wrong-size.patch		0f3086868e8889a823a6e0f3d299102aa895d947
+0053-cxgb4-implement-ethtool-dump-data-operations.patch			ad75b7d32f2517a6cc92a5d70569c33455157453
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
