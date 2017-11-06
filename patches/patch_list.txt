@@ -53,6 +53,7 @@
 0052-cxgb4-Fix-stack-out-of-bounds-read-due-to-wrong-size.patch		0f3086868e8889a823a6e0f3d299102aa895d947
 0053-cxgb4-implement-ethtool-dump-data-operations.patch			ad75b7d32f2517a6cc92a5d70569c33455157453
 0054-cxgb4-collect-register-dump.patch					a7975a2f9a7984de9b9b318da9d1826033db32c7
+0055-cxgb4-collect-on-chip-memory-dump.patch				b33af022e57996dc818ec960cbdf0f07cb5130d8
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
