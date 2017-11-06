@@ -34,6 +34,19 @@
 0033-iw_cxgb4-remove-the-stid-on-listen-create-failure.patch		8b1bbf36b7452c4acb20e91948eaa5e225ea6978
 0034-iw_cxgb4-Remove-__func__-parameter-from-pr_debug.patch		548ddb19afbabf8f7af7a900c19d0f0705d6dc90
 0035-iw_cxgb4-change-pr_debug-to-appropriate-log-level.patch		4d45b7573ba74a278652b0566d779c2aa7ea3df1
+0036-iw_cxgb4-only-read-markers_enabled-mod-param-once.patch		3d4e79949cf9e8032f0cd1f91564c6ce3304755c
+0037-iw_cxgb4-allocate-enough-space-for-debugfs-qps-dump.patch		68cebcab59fbfbab5827fcc44e04cd31da02041b
+0038-iw_cxgb4-clean-up-c4iw_reject_cr.patch				bce2841f5a0dd9caf327fb1bc0051ea09a9e7dfb
+0039-iw_cxgb4-Add-missing-error-codes-for-act-open-cmd.patch		4c72efefd9af015459ed63b164ff4b13cbfa3f61
+0040-iw_cxgb4-Low-resource-fixes-for-connection-manager.patch		4a740838bf44ca4b03e26ff79aedb86b9d8cace4
+0041-iw_cxgb4-Low-resource-fixes-for-Memory-registration.patch		0f8ab0b6e91b4d5302ceee5ec12ce54d81297635
+0042-iw_cxgb4-Low-resource-fixes-for-Completion-queue.patch		dd6b0241260d0f16c4051da1c5b09d4da8992ef2
+0043-iw_cxgb4-Use-kfree_skb-instead-of-kfree.patch			56b2eca3fea8ea4fb6ec732b98470a09385cb1eb
+0044-iw_cxgb4-allocate-wait-object-for-each-memory-object.patch		a3f12da0e99a8d17118ee9e18a1f760a0d427b26
+0045-iw_cxgb4-allocate-wait-object-for-each-cq-object.patch		13ce83174afaf4ceb4dddd7b7e421778ee4fcf5e
+0046-iw_cxgb4-allocate-wait-object-for-each-qp-object.patch		7088a9ba624599696f920eac552eac69366c8440
+0047-iw_cxgb4-allocate-wait-object-for-each-ep-object.patch		ef885dc66c29dd8e6f6a12f164ed11237323c234
+0048-iw_cxgb4-add-referencing-to-wait-objects.patch			2015f26cfadec126265fabfbb0e6566e2cca94b4
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
