@@ -1,4 +1,4 @@
-From 5c90c2e06205f165d1f7562ee700ec548473d8ce Mon Sep 17 00:00:00 2001
+From e14b8ad6e84e56ba3af50d5f0fe66df4fa7f2470 Mon Sep 17 00:00:00 2001
 From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
 Date: Mon, 6 Nov 2017 15:17:34 +0530
 Subject: [PATCH 3/3] cxgb4: collect cudbg debug logs during kernel crash
@@ -8,11 +8,28 @@ Also add support to collect cudbg logs in kdump kernel.
 
 Signed-off-by: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
 ---
+ drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c  |   5 +-
  drivers/net/ethernet/chelsio/cxgb4/cxgb4.h      |   4 +
  drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c |  60 +++++++++
  drivers/net/ethernet/chelsio/cxgb4/t4_hw.c      | 155 +++++++++++++++++++++++-
- 3 files changed, 213 insertions(+), 6 deletions(-)
+ 4 files changed, 217 insertions(+), 7 deletions(-)
 
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
+index abd09a52..b6f51521 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
+@@ -1292,7 +1292,10 @@ int cudbg_collect_sw_state(struct cudbg_init *pdbg_init,
+ 
+ 	swstate = (struct cudbg_sw_state *)temp_buff.data;
+ 	swstate->fw_state = t4_read_reg(padap, PCIE_FW_A);
+-	strcpy(swstate->caller_string, "ETHTOOL");
++	if (padap->flags & K_CRASH)
++		strcpy(swstate->caller_string, "KERNEL CRASH");
++	else
++		strcpy(swstate->caller_string, "ETHTOOL");
+ 	swstate->os_type = CUDBG_OS_TYPE_LINUX;
+ 	return cudbg_write_and_release_buff(pdbg_init, &temp_buff, dbg_buff);
+ }
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
 index 88f5ad3b..579c2e37 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
