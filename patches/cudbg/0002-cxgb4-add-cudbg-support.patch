@@ -1,6 +1,6 @@
-From f188d92e777ce4baf4f39397073de78a496061e6 Mon Sep 17 00:00:00 2001
+From 815d4901eb1e0e1b7e2280fb913839b67a044583 Mon Sep 17 00:00:00 2001
 From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
-Date: Mon, 6 Nov 2017 15:12:35 +0530
+Date: Tue, 7 Nov 2017 19:34:38 +0530
 Subject: [PATCH 2/3] cxgb4: add cudbg support
 
 Add support to collect cudbg debug logs from cxgb4.
@@ -3208,7 +3208,7 @@ index 24b33f28..0b6d2303 100644
 +			struct cudbg_buffer *pout_buff);
  #endif /* __CUDBG_LIB_COMMON_H__ */
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c
-index 7373617d..d3d20660 100644
+index 7373617d..38c31c11 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c
 @@ -19,10 +19,14 @@
@@ -3503,7 +3503,7 @@ index 7373617d..d3d20660 100644
  		entity_hdr->sys_err = cudbg_err.sys_err;
  		entity_hdr->sys_warn = cudbg_err.sys_warn;
  		total_size += entity_hdr->size;
-+		cudbg_hdr->data_len += total_size;
++		cudbg_hdr->data_len += entity_hdr->size;
 +
 +		if (!ret) {
 +			if (pdbg_init->use_flash)
