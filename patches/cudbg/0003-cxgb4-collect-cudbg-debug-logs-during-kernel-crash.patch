@@ -1,4 +1,4 @@
-From e14b8ad6e84e56ba3af50d5f0fe66df4fa7f2470 Mon Sep 17 00:00:00 2001
+From 8aa214c2b85a2f9bf75cfc260a396e23dba7ca6e Mon Sep 17 00:00:00 2001
 From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
 Date: Mon, 6 Nov 2017 15:17:34 +0530
 Subject: [PATCH 3/3] cxgb4: collect cudbg debug logs during kernel crash
@@ -15,10 +15,10 @@ Signed-off-by: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
  4 files changed, 217 insertions(+), 7 deletions(-)
 
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
-index abd09a52..b6f51521 100644
+index 8b4e0ff9..ff2975b1 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
-@@ -1292,7 +1292,10 @@ int cudbg_collect_sw_state(struct cudbg_init *pdbg_init,
+@@ -1326,7 +1326,10 @@ int cudbg_collect_sw_state(struct cudbg_init *pdbg_init,
  
  	swstate = (struct cudbg_sw_state *)temp_buff.data;
  	swstate->fw_state = t4_read_reg(padap, PCIE_FW_A);
@@ -31,10 +31,10 @@ index abd09a52..b6f51521 100644
  	return cudbg_write_and_release_buff(pdbg_init, &temp_buff, dbg_buff);
  }
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
-index 88f5ad3b..579c2e37 100644
+index 3e1f0fe3..d56e45ea 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
-@@ -513,6 +513,7 @@ enum {                                 /* adapter flags */
+@@ -512,6 +512,7 @@ enum {                                 /* adapter flags */
  	USING_SOFT_PARAMS  = (1 << 6),
  	MASTER_PF          = (1 << 7),
  	FW_OFLD_CONN       = (1 << 9),
@@ -42,7 +42,7 @@ index 88f5ad3b..579c2e37 100644
  };
  
  struct rx_sw_desc;
-@@ -838,6 +839,9 @@ struct adapter {
+@@ -837,6 +838,9 @@ struct adapter {
  
  	/* Ethtool Dump */
  	struct ethtool_dump eth_dump;
@@ -53,14 +53,14 @@ index 88f5ad3b..579c2e37 100644
  
  /* Defined bit width of user definable filter tuples
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
-index d7a53102..96b03013 100644
+index d7a53102..39a3bd2c 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
 @@ -3718,6 +3718,22 @@ static struct fw_info *find_fw_info(int chip)
  	return NULL;
  }
  
-+#define DUMP_BUF_SIZE (2 * 1024 * 1024)
++#define DUMP_BUF_SIZE (4 * 1024 * 1024)
 +
 +static int panic_notify(struct notifier_block *this, unsigned long event,
 +                       void *ptr)
@@ -145,7 +145,7 @@ index d7a53102..96b03013 100644
  	} else
  		pci_release_regions(pdev);
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
-index 9212ef5f..877f69ef 100644
+index ea15b71e..ccc83c36 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
 @@ -255,6 +255,143 @@ static void t4_record_mbox(struct adapter *adapter,
@@ -307,7 +307,7 @@ index 9212ef5f..877f69ef 100644
  }
  
  static int t4_edc_err_read(struct adapter *adap, int idx)
-@@ -2921,8 +3062,12 @@ static int flash_wait_op(struct adapter *adapter, int attempts, int delay)
+@@ -2918,8 +3059,12 @@ static int flash_wait_op(struct adapter *adapter, int attempts, int delay)
  			return 0;
  		if (--attempts == 0)
  			return -EAGAIN;
@@ -322,7 +322,7 @@ index 9212ef5f..877f69ef 100644
  	}
  }
  
-@@ -7672,8 +7817,6 @@ static void init_link_config(struct link_config *lc, unsigned int pcaps,
+@@ -7664,8 +7809,6 @@ static void init_link_config(struct link_config *lc, unsigned int pcaps,
  	}
  }
  
