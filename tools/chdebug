@@ -21,7 +21,6 @@ busp=""
 cudbgmbox=6
 cudbgbusp=""
 cudbgpayload=""
-collectall=0
 declare -A toe
 
 if [[ $cmd_args -ne 0 ]] ; then
@@ -33,7 +32,6 @@ if [[ $cmd_args -ne 0 ]] ; then
 			echo -e "-b <bus id>\t - Provide bus id, format: 01:00.4 or 0000:01:00.4"
 			echo -e "\n-c <mbox>\t - Cudbg mailbox number (0-6) from which to collect cudbg logs. Default 6."
 			echo -e "\n--getpayload\t - Collect Payload Data in EDC and MC."
-			echo -e "\n--collectall\t - Collect all entities including large entities (EDC*, MC*, Queue Contexts)."
 			echo -e "\n-h,--help\t - Print help"
 			echo -e "\nThe ${myname} script will collect Chelsio debug information and creates a archive.\n"
 			exit 0
@@ -61,8 +59,6 @@ if [[ $cmd_args -ne 0 ]] ; then
 			fi
 		elif [[ ${args[${i}]} == "--getpayload" ]];then
 			cudbgpayload="--getpayload"
-		elif [[ ${args[${i}]} == "--collectall" ]];then
-			collectall=1
 		else
 			echo "Invalid argument specified, Please use --help for more information."
 			exit 1
@@ -273,9 +269,6 @@ function get_toe_intfs
 declare -a skip_entities=(
 	'mc0'
 	'mc1'
-	'edc0'
-	'edc1'
-	'dumpcontext'
 )
 
 ###
@@ -308,6 +301,7 @@ declare -a safe_entities=(
 	'txrate'
 	'tidinfo'
 	'pcieconfig'
+	'dumpcontext'
 	'maindirect'
 	'ulptxla'
 	'hmaindirect'
@@ -345,6 +339,8 @@ side_effect_entities['obq_ulp2']="obqulp2"
 side_effect_entities['obq_ulp3']="obqulp3"
 side_effect_entities['obq_sge']="obqsge"
 side_effect_entities['obq_ncsi']="obqncsi"
+side_effect_entities['edc0']="edc0"
+side_effect_entities['edc1']="edc1"
 side_effect_entities['pm_stats']="pmstats"
 side_effect_entities['hw_sched']="hwsched"
 side_effect_entities['ulprx_la']="ulprxla"
@@ -381,36 +377,22 @@ function collect_cudbg_entities
 	local skip_str=$(IFS=,; echo "${skip_entities[*]}")
 	local safe_str=$(IFS=,; echo "${safe_entities[*]}")
 
+	local res=$(is_driver_loaded cxgb4)
+
 	###
 	# Collect some entities from debugfs if cxgb4 is loaded.
 	# Else, collect from cudbg.
 	###
+	if [[ $res == 0 ]]; then
+		cmdlog "$CUDBG_BIN --collect all $pcie_path ${cudbglog}_${cudbgbusp}.log --skip $skip_str $cudbgpayload 2>&1" 1
+		return
+	fi
+
 	collect_entity_list=""
 
 	for se_entity in ${!side_effect_entities[@]}; do
 		get_cudbg_entity $se_entity ${side_effect_entities[$se_entity]}
 	done
-
-	###
-	# If --collectall is specified, collect entities in skip list
-	###
-	if [[ $collectall -eq 1 ]]; then
-		skip_str=""
-		for skip_idx in ${!skip_entities[@]}; do
-			local skip_entity=${skip_entities[$skip_idx]}
-
-			###
-			# MC entities will be handled separately.
-			# So, skip them here.
-			###
-			if [[ $skip_entity == "mc0" ]] || [[ $skip_entity == "mc1" ]]; then
-				skip_str+="$skip_entity,"
-				continue
-			fi
-
-			get_cudbg_entity $skip_entity $skip_entity
-		done
-	fi
 
 	###
 	# Collect the safe entities and rest of the entities (i.e. those that
@@ -470,13 +452,6 @@ function collect_cudbg_mc_entities
 	local buspath=$1
 	local card=$($CUDBG_BIN --debug vpddata $buspath | grep MN | awk '{print $2'})
 	local card_type=${card:1:1}
-
-	###
-	# If --collectall is not specified, don't collect mc entities
-	###
-	if [[ $collectall -eq 0 ]]; then
-		return
-	fi
 
 	###
 	# If it's a T6 card, collect "mc", if it exists.
