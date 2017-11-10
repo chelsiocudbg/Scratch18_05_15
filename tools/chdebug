@@ -765,6 +765,10 @@ function collect_cxgb4_debugfs
 
 	get_debugfs_entity "use_backdoor" "cxgb4"
 
+	get_debugfs_entity "tls" "cxgb4"
+
+	get_debugfs_entity "crypto" "cxgb4"
+
 	echo -e "-------------------------------------------------"
 }
 
