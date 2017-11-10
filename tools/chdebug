@@ -902,6 +902,7 @@ writelog ${chint[*]}
 for eths in ${chint[*]} ; do
 	cmdlog "ethtool -S $eths"
 	cmdlog "ethtool -i $eths"
+	cmdlog "ethtool $eths"
 done
 cmdlog "ifconfig -a"
 
@@ -912,9 +913,25 @@ cmdlog "lspci -vvv"
 cmdlog "lspci -tv"
 cmdlog "lsmod"
 
-if [[ -f /lib/firmware/cxgb4/t5-config.txt ]] ; then
-	cmdlog "cat /lib/firmware/cxgb4/t5-config.txt"
-fi 
+# Collect FW config files corresponding to the adapters selected
+declare -a adap_ver
+for buspath in ${fbuspath[*]} ; do
+	device_file=$buspath/device
+	if [ ! -f $device_file ] ; then
+		echo -e "$device_file not found, skipping FW config file collection"
+		continue
+	fi
+	adap_ver+=($(cat $device_file | cut -c3))
+done
+# Avoid collecting same config file multiple times in case multiple
+# adapters are present(for eg: two T5 cards)
+adap_ver=($(IFS=$'\n'; echo "${adap_ver[*]}" | sort -u))
+for version in ${adap_ver[*]}; do
+	cfg_file="/lib/firmware/cxgb4/t${version}-config.txt"
+	if [[ -f $cfg_file ]] ; then
+		cmdlog "cat $cfg_file"
+	fi
+done
 
 cp -f $(ls /var/log/messages* -t | head -10) $varlogdir
 
