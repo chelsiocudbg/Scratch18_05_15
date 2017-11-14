@@ -769,6 +769,8 @@ function collect_cxgb4_debugfs
 
 	get_debugfs_entity "crypto" "cxgb4"
 
+	get_debugfs_entity "trace_rss" "cxgb4"
+
 	echo -e "-------------------------------------------------"
 }
 
