@@ -68,6 +68,8 @@
 0067-cxgb4-collect-PBT-tables-dump.patch				db8cd7ce208a7e7d440856b5c3e4e96af6dd9917
 0068-cxgb4-collect-hardware-scheduler-dumps.patch			08c4901bfe0b3beb12e7a5d7749e3522d7b1471e
 0069-cxgb4-collect-hardware-misc-dumps.patch				6f92a6544f1a4ed2d495a937283f01ee7d590fec
+0070-iw_cxgb4-only-call-the-cq-comp_handler-when-the-cq-i.patch		cbb40fadd31c6bbc59104e58ac95c6ef492d038b
+0071-iw_cxgb4-atomically-flush-the-qp.patch				bc52e9ca74b9a395897bb640c6671b2cbf716032
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
