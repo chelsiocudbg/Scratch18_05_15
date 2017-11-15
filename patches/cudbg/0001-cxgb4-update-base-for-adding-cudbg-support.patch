@@ -1,19 +1,20 @@
-From 466800040052e52deb383d494bd5bbcf5024131c Mon Sep 17 00:00:00 2001
+From c9d09975e5df2d78c31d44c2d47de46378c1b3e4 Mon Sep 17 00:00:00 2001
 From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
 Date: Sun, 5 Nov 2017 16:00:09 +0530
 Subject: [PATCH 1/3] cxgb4: update base for adding cudbg support
 
 Signed-off-by: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
 ---
- drivers/net/ethernet/chelsio/cxgb4/cxgb4.h    | 11 +++-
- drivers/net/ethernet/chelsio/cxgb4/t4_hw.c    | 94 ++++++++++++++++++++++++---
- drivers/net/ethernet/chelsio/cxgb4/t4_hw.h    | 10 ++-
- drivers/net/ethernet/chelsio/cxgb4/t4_regs.h  | 61 +++++++++++++++++
- drivers/net/ethernet/chelsio/cxgb4/t4fw_api.h |  1 +
- 5 files changed, 165 insertions(+), 12 deletions(-)
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4.h         |  12 ++-
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c |   4 +-
+ drivers/net/ethernet/chelsio/cxgb4/t4_hw.c         | 107 ++++++++++++++++++---
+ drivers/net/ethernet/chelsio/cxgb4/t4_hw.h         |  11 ++-
+ drivers/net/ethernet/chelsio/cxgb4/t4_regs.h       |  32 ++++++
+ drivers/net/ethernet/chelsio/cxgb4/t4fw_api.h      |   1 +
+ 6 files changed, 152 insertions(+), 15 deletions(-)
 
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
-index 3e1f0fe3..88f5ad3b 100644
+index 38b7c36b..a1ec65f5 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
 @@ -73,7 +73,8 @@ enum {
@@ -26,7 +27,15 @@ index 3e1f0fe3..88f5ad3b 100644
  };
  
  enum {
-@@ -1546,6 +1547,14 @@ int t4_fwaddrspace_write(struct adapter *adap, unsigned int mbox,
+@@ -1402,6 +1403,7 @@ int t4_config_glbl_rss(struct adapter *adapter, int mbox, unsigned int mode,
+ 		       unsigned int flags);
+ int t4_config_vi_rss(struct adapter *adapter, int mbox, unsigned int viid,
+ 		     unsigned int flags, unsigned int defq);
++unsigned int t4_chip_rss_size(struct adapter *adap);
+ int t4_read_rss(struct adapter *adapter, u16 *entries);
+ void t4_read_rss_key(struct adapter *adapter, u32 *key, bool sleep_ok);
+ void t4_write_rss_key(struct adapter *adap, const u32 *key, int idx,
+@@ -1547,6 +1549,14 @@ int t4_fwaddrspace_write(struct adapter *adap, unsigned int mbox,
  void t4_read_pace_tbl(struct adapter *adap, unsigned int pace_vals[NTX_SCHED]);
  void t4_get_tx_sched(struct adapter *adap, unsigned int sched,
  		     unsigned int *kbps, unsigned int *ipg, bool sleep_ok);
@@ -41,8 +50,24 @@ index 3e1f0fe3..88f5ad3b 100644
  void t4_sge_decode_idma_state(struct adapter *adapter, int state);
  void t4_free_mem(void *addr);
  void t4_idma_monitor_init(struct adapter *adapter,
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c
+index d8fd2b25..a862e046 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c
+@@ -2019,8 +2019,10 @@ static int rss_open(struct inode *inode, struct file *file)
+ 	int ret;
+ 	struct seq_tab *p;
+ 	struct adapter *adap = inode->i_private;
++	unsigned int nentries;
+ 
+-	p = seq_open_tab(file, RSS_NENTRIES / 8, 8 * sizeof(u16), 0, rss_show);
++	nentries = t4_chip_rss_size(adap);
++	p = seq_open_tab(file, nentries / 8, 8 * sizeof(u16), 0, rss_show);
+ 	if (!p)
+ 		return -ENOMEM;
+ 
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
-index ea15b71e..9212ef5f 100644
+index afc1a855..b1519aef 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
 @@ -525,11 +525,14 @@ int t4_memory_rw(struct adapter *adap, int win, int mtype, u32 addr,
@@ -62,7 +87,16 @@ index ea15b71e..9212ef5f 100644
  		mc_size = EXT_MEM0_SIZE_G(t4_read_reg(adap,
  						      MA_EXT_MEMORY0_BAR_A));
  		memoffset = (MEM_MC0 * edc_size + mc_size) * 1024 * 1024;
-@@ -2968,12 +2971,13 @@ int t4_read_flash(struct adapter *adapter, unsigned int addr,
+@@ -2818,7 +2821,7 @@ int t4_get_raw_vpd_params(struct adapter *adapter, struct vpd_params *p)
+ 
+ out:
+ 	vfree(vpd);
+-	return ret;
++	return ret < 0 ? ret : 0;
+ }
+ 
+ /**
+@@ -2997,12 +3000,13 @@ int t4_read_flash(struct adapter *adapter, unsigned int addr,
   *	@addr: the start address to write
   *	@n: length of data to write in bytes
   *	@data: the data to write
@@ -78,7 +112,7 @@ index ea15b71e..9212ef5f 100644
  {
  	int ret;
  	u32 buf[64];
-@@ -2993,6 +2997,9 @@ static int t4_write_flash(struct adapter *adapter, unsigned int addr,
+@@ -3022,6 +3026,9 @@ static int t4_write_flash(struct adapter *adapter, unsigned int addr,
  		for (val = 0, i = 0; i < c; ++i)
  			val = (val << 8) + *data++;
  
@@ -88,7 +122,7 @@ index ea15b71e..9212ef5f 100644
  		ret = sf1_write(adapter, c, c != left, 1, val);
  		if (ret)
  			goto unlock;
-@@ -3004,7 +3011,8 @@ static int t4_write_flash(struct adapter *adapter, unsigned int addr,
+@@ -3033,7 +3040,8 @@ static int t4_write_flash(struct adapter *adapter, unsigned int addr,
  	t4_write_reg(adapter, SF_OP_A, 0);    /* unlock SF */
  
  	/* Read the page to verify the write succeeded */
@@ -98,7 +132,7 @@ index ea15b71e..9212ef5f 100644
  	if (ret)
  		return ret;
  
-@@ -3476,7 +3484,7 @@ bye:
+@@ -3505,7 +3513,7 @@ bye:
   *
   *	Erases the sectors in the given inclusive range.
   */
@@ -107,7 +141,7 @@ index ea15b71e..9212ef5f 100644
  {
  	int ret = 0;
  
-@@ -3599,7 +3607,7 @@ int t4_load_fw(struct adapter *adap, const u8 *fw_data, unsigned int size)
+@@ -3628,7 +3636,7 @@ int t4_load_fw(struct adapter *adap, const u8 *fw_data, unsigned int size)
  	 */
  	memcpy(first_page, fw_data, SF_PAGE_SIZE);
  	((struct fw_hdr *)first_page)->fw_ver = cpu_to_be32(0xffffffff);
@@ -116,7 +150,7 @@ index ea15b71e..9212ef5f 100644
  	if (ret)
  		goto out;
  
-@@ -3607,14 +3615,14 @@ int t4_load_fw(struct adapter *adap, const u8 *fw_data, unsigned int size)
+@@ -3636,14 +3644,14 @@ int t4_load_fw(struct adapter *adap, const u8 *fw_data, unsigned int size)
  	for (size -= SF_PAGE_SIZE; size; size -= SF_PAGE_SIZE) {
  		addr += SF_PAGE_SIZE;
  		fw_data += SF_PAGE_SIZE;
@@ -133,7 +167,33 @@ index ea15b71e..9212ef5f 100644
  out:
  	if (ret)
  		dev_err(adap->pdev_dev, "firmware download failed, error %d\n",
-@@ -7684,7 +7692,7 @@ struct flash_desc {
+@@ -4914,6 +4922,13 @@ static int rd_rss_row(struct adapter *adap, int row, u32 *val)
+ 				   5, 0, val);
+ }
+ 
++unsigned int t4_chip_rss_size(struct adapter *adap)
++{
++	if (CHELSIO_CHIP_VERSION(adap->params.chip) <= CHELSIO_T5)
++		return RSS_NENTRIES;
++	return T6_RSS_NENTRIES;
++}
++
+ /**
+  *	t4_read_rss - read the contents of the RSS mapping table
+  *	@adapter: the adapter
+@@ -4925,8 +4940,10 @@ int t4_read_rss(struct adapter *adapter, u16 *map)
+ {
+ 	u32 val;
+ 	int i, ret;
++	unsigned int nentries;
+ 
+-	for (i = 0; i < RSS_NENTRIES / 2; ++i) {
++	nentries = t4_chip_rss_size(adapter);
++	for (i = 0; i < nentries / 2; ++i) {
+ 		ret = rd_rss_row(adapter, i, &val);
+ 		if (ret)
+ 			return ret;
+@@ -7713,7 +7730,7 @@ struct flash_desc {
  	u32 size_mb;
  };
  
@@ -142,7 +202,7 @@ index ea15b71e..9212ef5f 100644
  {
  	/* Table for non-Numonix supported flash parts.  Numonix parts are left
  	 * to the preexisting code.  All flash parts have 64KB sectors.
-@@ -8707,3 +8715,69 @@ void t4_get_tx_sched(struct adapter *adap, unsigned int sched,
+@@ -8736,3 +8753,69 @@ void t4_get_tx_sched(struct adapter *adap, unsigned int sched,
  		*ipg = (10000 * v) / core_ticks_per_usec(adap);
  	}
  }
@@ -213,10 +273,18 @@ index ea15b71e..9212ef5f 100644
 +	return ret;
 +}
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.h b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.h
-index 7c6af149..f54b57a8 100644
+index 7c6af149..4b1ae6b4 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.h
 +++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.h
-@@ -68,6 +68,9 @@ enum {
+@@ -44,6 +44,7 @@ enum {
+ 	EEPROMVSIZE    = 32768, /* Serial EEPROM virtual address space size */
+ 	EEPROMPFSIZE   = 1024,  /* EEPROM writable area size for PFn, n>0 */
+ 	RSS_NENTRIES   = 2048,  /* # of entries in RSS mapping table */
++	T6_RSS_NENTRIES = 4096, /* # of entries in T6 RSS mapping table */
+ 	TCB_SIZE       = 128,   /* TCB size */
+ 	NMTUS          = 16,    /* size of MTU table */
+ 	NCCTRL_WIN     = 32,    /* # of congestion control windows */
+@@ -68,6 +69,9 @@ enum {
  	ULPRX_LA_SIZE  = 512,   /* # of 256-bit words in ULP_RX LA */
  };
  
@@ -226,7 +294,7 @@ index 7c6af149..f54b57a8 100644
  enum {
  	SF_PAGE_SIZE = 256,           /* serial flash page size */
  	SF_SEC_SIZE = 64 * 1024,      /* serial flash sector size */
-@@ -79,6 +82,7 @@ enum { MBOX_OWNER_NONE, MBOX_OWNER_FW, MBOX_OWNER_DRV };    /* mailbox owners */
+@@ -79,6 +83,7 @@ enum { MBOX_OWNER_NONE, MBOX_OWNER_FW, MBOX_OWNER_DRV };    /* mailbox owners */
  
  enum {
  	SGE_MAX_WR_LEN = 512,     /* max WR size in bytes */
@@ -234,7 +302,7 @@ index 7c6af149..f54b57a8 100644
  	SGE_NTIMERS = 6,          /* # of interrupt holdoff timer values */
  	SGE_NCOUNTERS = 4,        /* # of interrupt packet counter values */
  	SGE_MAX_IQ_SIZE = 65520,
-@@ -265,8 +269,12 @@ enum {
+@@ -265,8 +270,12 @@ enum {
  	FLASH_FPGA_CFG_START = FLASH_START(FLASH_FPGA_CFG_START_SEC),
  
  	/*
@@ -249,10 +317,10 @@ index 7c6af149..f54b57a8 100644
  
  #undef FLASH_START
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_regs.h b/drivers/net/ethernet/chelsio/cxgb4/t4_regs.h
-index 0e2594e1..16dff14f 100644
+index c1dc85e2..60dc06aa 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/t4_regs.h
 +++ b/drivers/net/ethernet/chelsio/cxgb4/t4_regs.h
-@@ -965,6 +965,10 @@
+@@ -968,6 +968,10 @@
  #define EDRAM0_ENABLE_V(x) ((x) << EDRAM0_ENABLE_S)
  #define EDRAM0_ENABLE_F    EDRAM0_ENABLE_V(1U)
  
@@ -263,9 +331,9 @@ index 0e2594e1..16dff14f 100644
  #define EXT_MEM1_ENABLE_S    4
  #define EXT_MEM1_ENABLE_V(x) ((x) << EXT_MEM1_ENABLE_S)
  #define EXT_MEM1_ENABLE_F    EXT_MEM1_ENABLE_V(1U)
-@@ -2250,10 +2254,51 @@
- #define CHNENABLE_V(x) ((x) << CHNENABLE_S)
- #define CHNENABLE_F    CHNENABLE_V(1U)
+@@ -2282,10 +2286,22 @@
+ 
+ #define LE_DB_DBGI_RSP_DATA_A 0x19da0
  
 +#define CTXTTYPE_S    24
 +#define CTXTTYPE_M    0x3U
@@ -276,15 +344,6 @@ index 0e2594e1..16dff14f 100644
 +#define BUSY_V(x) ((x) << BUSY_S)
 +#define BUSY_F    BUSY_V(1U)
 +
-+#define DBGICMD_S    20
-+#define DBGICMD_M    0xfU
-+#define DBGICMD_V(x) ((x) << DBGICMD_S)
-+#define DBGICMD_G(x) (((x) >> DBGICMD_S) & DBGICMD_M)
-+
-+#define DBGICMDBUSY_S    3
-+#define DBGICMDBUSY_V(x) ((x) << DBGICMDBUSY_S)
-+#define DBGICMDBUSY_F    DBGICMDBUSY_V(1U)
-+
  #define PRTENABLE_S    29
  #define PRTENABLE_V(x) ((x) << PRTENABLE_S)
  #define PRTENABLE_F    PRTENABLE_V(1U)
@@ -292,30 +351,10 @@ index 0e2594e1..16dff14f 100644
 +#define SGE_CTXT_DATA0_A 0x1200
 +#define SGE_CTXT_DATA5_A 0x1214
 +
-+#define LE_DB_DBGI_REQ_DATA_A 0x19d00
-+#define LE_DB_DBGI_RSP_STATUS_A 0x19d94
-+#define LE_DB_DBGI_REQ_TCAM_CMD_A 0x19cf4
-+#define LE_DB_DBGI_CONFIG_A 0x19cf0
-+#define LE_DB_DBGI_RSP_DATA_A 0x19da0
-+
-+#define LE_DB_ROUTING_TABLE_INDEX_A 0x19c10
-+#define LE_DB_CLIP_TABLE_INDEX_A 0x19c1c
-+#define LE_DB_FILTER_TABLE_INDEX_A 0x19c14
-+#define LE_DB_HASH_CONFIG_A 0x19c28
-+
-+#define HASHTIDSIZE_S    16
-+#define HASHTIDSIZE_M    0x3fU
-+#define HASHTIDSIZE_V(x) ((x) << HASHTIDSIZE_S)
-+#define HASHTIDSIZE_G(x) (((x) >> HASHTIDSIZE_S) & HASHTIDSIZE_M)
-+
-+#define DBGICMDSTRT_S    2
-+#define DBGICMDSTRT_V(x) ((x) << DBGICMDSTRT_S)
-+#define DBGICMDSTRT_F    DBGICMDSTRT_V(1U)
-+
  #define UDPFOURTUPEN_S    28
  #define UDPFOURTUPEN_V(x) ((x) << UDPFOURTUPEN_S)
  #define UDPFOURTUPEN_F    UDPFOURTUPEN_V(1U)
-@@ -2902,6 +2947,12 @@
+@@ -2943,6 +2959,12 @@
  #define BASEADDR_M    0x1fffffffU
  #define BASEADDR_G(x) (((x) >> BASEADDR_S) & BASEADDR_M)
  
@@ -328,7 +367,7 @@ index 0e2594e1..16dff14f 100644
  #define TCAMINTPERR_S    13
  #define TCAMINTPERR_V(x) ((x) << TCAMINTPERR_S)
  #define TCAMINTPERR_F    TCAMINTPERR_V(1U)
-@@ -2930,6 +2981,16 @@
+@@ -2971,6 +2993,16 @@
  
  #define XGMAC_PORT_CFG2_A 0x1018
  
