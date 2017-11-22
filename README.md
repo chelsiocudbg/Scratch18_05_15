@@ -14,8 +14,8 @@
 numbering.
 ```
 # cd <path to kernel source>
-# patch -p1 -i /home/SW_Patches/patches/upstream/<file>.patch
-# patch -p1 -i /home/SW_Patches/patches/cudbg/<file>.patch
+# for i in /home/SW_Patches/patches/upstream/*.patch; do patch -p1 < $i; done
+# for i in /home/SW_Patches/patches/cudbg/*.patch; do patch -p1 < $i; done
 ```
 
 3. Ensure that all the Chelsio driver modules are selected in the kernel
