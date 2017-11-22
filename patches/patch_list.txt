@@ -72,6 +72,7 @@
 0071-iw_cxgb4-atomically-flush-the-qp.patch				bc52e9ca74b9a395897bb640c6671b2cbf716032
 0072-cxgb4-collect-vpd-info-directly-from-hardware.patch		940c9c458866725e0ade96d5c1c7dbe5fcf1cf85
 0073-cxgb4-collect-LE-TCAM-dump.patch					03e98b9118bed1960993466f4d64f9f5a9146b66
+0074-iw_cxgb4-remove-BUG_ON-usage.patch  				ba97b749979ef0ebb821e58ee8b16a84412922f6
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
