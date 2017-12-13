@@ -1,4 +1,4 @@
-# Chelsio T5 SMB configuration file.
+# Chelsio T6 SMB configuration file.
 #
 # Copyright (C) 2010-2017 Chelsio Communications.  All rights reserved.
 #
@@ -7,7 +7,7 @@
 #   TO ADAPTERS.
 
 
-# This file provides the default, power-on configuration for 4-port T5-based
+# This file provides the default, power-on configuration for 2-port T6-based
 # adapters shipped from the factory.  These defaults are designed to address
 # the needs of the vast majority of Terminator customers.  The basic idea is to
 # have a default configuration which allows a customer to plug a Terminator
@@ -31,7 +31,7 @@
 #     Function (currently PF4 but it could be any Physical Function).
 #  7. Some OS Drivers will manage different ports and functions (NIC,
 #     storage, etc.) on different Physical Functions.  For example, NIC
-#     functions for ports 0-3 on PF0-3, FCoE on PF4, iSCSI on PF5, etc.
+#     functions for ports 0-1 on PF0-3, FCoE on PF4, iSCSI on PF5, etc.
 #
 # Some of the customer application needs which need to be accommodated:
 #  8. Some customers will want to support large CPU count systems with
@@ -44,7 +44,7 @@
 #
 #         4 ports *
 #         3 application functions (NIC, FCoE, iSCSI) per port *
-#         8 Ingress Queue/MSI-X Vectors per application function
+#         16 Ingress Queue/MSI-X Vectors per application function
 #
 #     for a total of 96 Ingress Queues and MSI-X Vectors on the Unified PF.
 #     (Plus a few for Firmware Event Queues, etc.)
@@ -65,7 +65,7 @@
 	rss_keymode = idxvf_key #Other modes: glb_key, glbvf_key, pfvf_key
 
 	# PL_TIMEOUT register
-	pl_timeout_value = 10000	# the timeout value in units of us
+	pl_timeout_value = 200	# the timeout value in units of us
 
 	# The following Scatter Gather Engine (SGE) settings assume a 4KB Host
 	# Page Size and a 64B L1 Cache Line Size. It programs the
@@ -81,7 +81,7 @@
 	#     The firmware will convert these values to Core Clock Ticks when
 	#     it processes the configuration parameters.
 	#
-	reg[0x1008] = 0x40010/0x21c70	# SGE_CONTROL
+	reg[0x1008] = 0x40800/0x21c70	# SGE_CONTROL
 	reg[0x100c] = 0x22222222	# SGE_HOST_PAGE_SIZE
 	reg[0x10a0] = 0x01040810	# SGE_INGRESS_RX_THRESHOLD
 	reg[0x1044] = 4096		# SGE_FL_BUFFER_SIZE0
@@ -93,45 +93,18 @@
 	reg[0x105c] = 128		# SGE_FL_BUFFER_SIZE6
 	reg[0x1060] = 8192		# SGE_FL_BUFFER_SIZE7
 	reg[0x1064] = 16384		# SGE_FL_BUFFER_SIZE8
-	reg[0x10a4] = 0x00280000/0x3ffc0000 # SGE_DBFIFO_STATUS
-	reg[0x1118] = 0x00002800/0x00003c00 # SGE_DBFIFO_STATUS2
-	reg[0x10a8] = 0x402000/0x402000	# SGE_DOORBELL_CONTROL
-
-	# SGE_THROTTLE_CONTROL
-	bar2throttlecount = 500		# bar2throttlecount in us
 
 	sge_timer_value = 5, 10, 20, 50, 100, 200 # SGE_TIMER_VALUE* in usecs
-
-	
-	reg[0x1124] = 0x00000400/0x00000400 # SGE_CONTROL2, enable VFIFO; if
-					# SGE_VFIFO_SIZE is not set, then
-					# firmware will set it up in function
-					# of number of egress queues used
-
-	reg[0x1130] = 0x00d5ffeb	# SGE_DBP_FETCH_THRESHOLD, fetch
-					# threshold set to queue depth
-					# minus 128-entries for FL and HP
-					# queues, and 0xfff for LP which
-					# prompts the firmware to set it up
-					# in function of egress queues
-					# used
-
-	reg[0x113c] = 0x0002ffc0	# SGE_VFIFO_SIZE, set to 0x2ffc0 which
-					# prompts the firmware to set it up in
-					# function of number of egress queues
-					# used 
+	reg[0x10c4] = 0x20000000/0x20000000 # GK_CONTROL, enable 5th thread
 
 	# enable TP_OUT_CONFIG.IPIDSPLITMODE
 	reg[0x7d04] = 0x00010000/0x00010000
 
-	# disable TP_PARA_REG3.RxFragEn
-	reg[0x7d6c] = 0x00000000/0x00007000
-
-	# enable TP_PARA_REG6.EnableCSnd
-	reg[0x7d78] = 0x00000400/0x00000000
-
 	# TP_SHIFT_CNT - set SYN shift count to 4 for quicker connect timeouts
 	reg[0x7dc0] = 0x042f8849	# TP_SHIFT_CNT
+
+	#Tick granularities in kbps
+	tsch_ticks = 100000, 10000, 1000, 10
 
 	# TP_VLAN_PRI_MAP to select filter tuples and enable ServerSram
 	# filter control: compact, fcoemask
@@ -139,7 +112,7 @@
 	# filter tuples : fragmentation, mpshittype, macmatch, ethertype,
 	#		  protocol, tos, vlan, vnic_id, port, fcoe
 	# valid filterModes are described the Terminator 5 Data Book
-	filterMode = fragmentation,  mpshittype, macmatch, protocol, tos, port, fcoe
+	filterMode = fcoemask, fragmentation, mpshittype, macmatch, protocol, tos, port, fcoe
 
 	# filter tuples enforced in LE active region (equal to or subset of filterMode)
 	filterMask = protocol, fcoe
@@ -167,6 +140,9 @@
 	# TP OFLD MTUs
 	tp_mtus = 88, 256, 512, 576, 808, 1024, 1280, 1488, 1500, 2002, 2048, 4096, 4352, 8192, 9000, 9600
 
+	# enable TP_OUT_CONFIG.IPIDSPLITMODE and CRXPKTENC
+	reg[0x7d04] = 0x00010008/0x00010008
+
 	# TP TCP hardware stack tuning
 	tp_tcptuning = cluster	# wan, lan or cluster
 
@@ -179,27 +155,30 @@
 	# TP_PARA_REG0
 	reg[0x7d60] = 0x06000000/0x07000000 # set InitCWND to 6
 
-	# ULPRX iSCSI Page Sizes
-	reg[0x19168] = 0x04020100 # 64K, 16K, 8K and 4K
-
-	# MC configuration
-	mc_mode_brc[0] = 1		# mc0 - 1: enable BRC, 0: enable RBC
-	mc_mode_brc[1] = 1		# mc1 - 1: enable BRC, 0: enable RBC
+	# LE_DB_CONFIG
+	reg[0x19c04] = 0x00000000/0x00440000 # LE Server SRAM disabled
+					     # LE IPv4 compression disabled 
+	# LE_DB_HASH_CONFIG
+	reg[0x19c28] = 0x00800000/0x01f00000 # LE Hash bucket size 8
 
 	# ULP_TX_CONFIG
 	reg[0x8dc0] = 0x00000004/0x00000004 # Enable more error msg for ...
 					    # TPT error.
+
+	# HMA configuration
+	hma_size = 96			# Size (in MBs) of host memory expected
+	hma_regions = stag,pbl,rq	# What all regions to place in host memory
 
 # Some "definitions" to make the rest of this a bit more readable.  We support
 # 4 ports, 3 functions (NIC, FCoE and iSCSI), scaling up to 8 "CPU Queue Sets"
 # per function per port ...
 #
 # NMSIX = 1088			# available MSI-X Vectors
-# NVI = 128			# available Virtual Interfaces
+# NVI = 256			# available Virtual Interfaces
 # NMPSTCAM = 336		# MPS TCAM entries
 #
-# NPORTS = 4			# ports
-# NCPUS = 8			# CPUs we want to support scalably
+# NPORTS = 2			# ports
+# NCPUS = 16			# CPUs we want to support scalably
 # NFUNCS = 3			# functions per port (NIC, FCoE, iSCSI)
 # RSSNSECRET = 16		# available 320b entries in rss secret table
 
@@ -353,21 +332,43 @@
 	niqflint = 170		# NFLIQ_UNIFIED + NLFIQ_WD
 	nethctrl = 100		# NETHCTRL_UNIFIED + NETHCTRL_WD
 	neq = 256		# NEQ_UNIFIED + NEQ_WD
-	nexactf = 128		# NMPSTCAM_UNIFIED
-	nqpcq = 12288 
+	nexactf = 256		# NMPSTCAM_UNIFIED
+	nrawf = 2
+	nqpcq = 12288
 	cmask = all		# access to all channels
 	pmask = all		# access to all four ports ...
-	nclip = 32		# number of clip region entries
+	nclip = 384		# number of clip region entries
 	nfilter = 368		# number of filter region entries
 	nserver = 128		# number of server region entries
-	nhash = 16384		# number of hash region entries
+	nhash = 14336		# number of hash region entries
 	protocol = nic_vm, ofld, rddp, rdmac, iscsi_initiator_pdu
 	tp_l2t = 4096
 	tp_ddp = 1
 	tp_ddp_iscsi = 1
-	tp_stag = 5 
-	tp_pbl = 34 
+	tp_stag = 5
+	tp_pbl = 34
 	tp_rq = 10
+
+
+[function "6"]
+	wx_caps = all		# write/execute permissions for all commands
+	r_caps = all		# read permissions for all commands
+	nvi = 4			# NPORTS
+	niqflint = 34		# NPORTS*NCPUS + NMSIX_EXTRA
+	nethctrl = 32		# NPORTS*NCPUS
+	neq = 66		# NPORTS*NCPUS * 2 (FL, ETHCTRL/TX) + 2 (EXTRA)
+	nexactf = 32		# NPORTS + adding 28 exact entries for FCoE
+				# which is OK since < MIN(SUM PF0..3, PF4)
+				# and we never load PF0..3 and PF4 concurrently
+	cmask = all		# access to all channels
+	pmask = all		# access to all four ports ...
+	nhash = 2048
+	tp_l2t = 4
+	protocol = fcoe_initiator
+	tp_ddp = 2
+	fcoe_nfcf = 16
+	fcoe_nvnp = 32
+	fcoe_nssn = 1024
 
 
 # The following function, 1023, is not an actual PCIE function but is used to
@@ -415,13 +416,13 @@
 	r_caps = 0x86		# DMAQ | VF | PORT
 	nvi = 1			# 1 port
 	rssnvi = 1
-	niqflint = 7		# 4 "Queue Sets" + CIQ + FWEVTQ + FWDINTRQ 
-	nethctrl = 4		# 4 "Queue Sets"
-	neq = 8			# 4 "Queue Sets" * 2
+	niqflint = 11		# 8 "Queue Sets" + CIQ + FWEVTQ + FWDINTRQ 
+	nethctrl = 8		# 8 "Queue Sets"
+	neq = 16		# 8 "Queue Sets" * 2
 	nexactf = 4
 	cmask = all		# access to all channels
 	pmask = all 		# access to all ports
-	nqpcq = 32
+	nqpcq = 78
 	protocol = ofld, rdmac
 
 
@@ -442,49 +443,18 @@
 
 [port "0"]
 	dcb = ppp, dcbx		# configure for DCB PPP and enable DCBX offload
-	dcb_dcbx_protocol = ieee
-	bg_mem = 25
-	lpbk_mem = 25 
-	hwm = 30
+	dcb_dcbx_protocol = auto
+	hwm = 60
 	lwm = 15
 	dwm = 30
 	dcb_app_tlv[0] = 0x8906, ethertype, 3
 	dcb_app_tlv[1] = 0x8914, ethertype, 3
 	dcb_app_tlv[2] = 3260, socketnum, 5
-
 
 [port "1"]
 	dcb = ppp, dcbx
-	dcb_dcbx_protocol = ieee
-	bg_mem = 25
-	lpbk_mem = 25
-	hwm = 30
-	lwm = 15
-	dwm = 30
-	dcb_app_tlv[0] = 0x8906, ethertype, 3
-	dcb_app_tlv[1] = 0x8914, ethertype, 3
-	dcb_app_tlv[2] = 3260, socketnum, 5
-
-
-[port "2"]
-	dcb = ppp, dcbx
-	dcb_dcbx_protocol = ieee
-	bg_mem = 25
-	lpbk_mem = 25
-	hwm = 30
-	lwm = 15
-	dwm = 30
-	dcb_app_tlv[0] = 0x8906, ethertype, 3
-	dcb_app_tlv[1] = 0x8914, ethertype, 3
-	dcb_app_tlv[2] = 3260, socketnum, 5
-
-
-[port "3"]
-	dcb = ppp, dcbx
-	dcb_dcbx_protocol = ieee
-	bg_mem = 25
-	lpbk_mem = 25
-	hwm = 30
+	dcb_dcbx_protocol = auto
+	hwm = 60
 	lwm = 15
 	dwm = 30
 	dcb_app_tlv[0] = 0x8906, ethertype, 3
@@ -492,8 +462,8 @@
 	dcb_app_tlv[2] = 3260, socketnum, 5
 
 [fini]
-	version = 0x08000027
-	checksum = 0x73ca4209
+	version = 0x0800002a
+	checksum = 0x622eef46
 
 # Total resources used by above allocations:
 #   Virtual Interfaces: 104

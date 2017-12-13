@@ -81,7 +81,7 @@
 	#     The firmware will convert these values to Core Clock Ticks when
 	#     it processes the configuration parameters.
 	#
-	reg[0x1008] = 0x40800/0x21c70	# SGE_CONTROL
+	reg[0x1008] = 0x40010/0x21c70	# SGE_CONTROL
 	reg[0x100c] = 0x22222222	# SGE_HOST_PAGE_SIZE
 	reg[0x10a0] = 0x01040810	# SGE_INGRESS_RX_THRESHOLD
 	reg[0x1044] = 4096		# SGE_FL_BUFFER_SIZE0
@@ -112,10 +112,10 @@
 	# filter tuples : fragmentation, mpshittype, macmatch, ethertype,
 	#		  protocol, tos, vlan, vnic_id, port, fcoe
 	# valid filterModes are described the Terminator 5 Data Book
-	filterMode = fcoemask, fragmentation, mpshittype, macmatch, protocol, tos, port, fcoe
+	filterMode = fragmentation,  mpshittype, macmatch, protocol, tos, port, fcoe
 
 	# filter tuples enforced in LE active region (equal to or subset of filterMode)
-	filterMask = protocol, fcoe
+	filterMask = protocol
 
 	# Percentage of dynamic memory (in either the EDRAM or external MEM)
 	# to use for TP RX payload
@@ -164,10 +164,6 @@
 	# ULP_TX_CONFIG
 	reg[0x8dc0] = 0x00000004/0x00000004 # Enable more error msg for ...
 					    # TPT error.
-
-	# HMA configuration
-	hma_size = 96			# Size (in MBs) of host memory expected
-	hma_regions = stag,pbl,rq	# What all regions to place in host memory
 
 # Some "definitions" to make the rest of this a bit more readable.  We support
 # 4 ports, 3 functions (NIC, FCoE and iSCSI), scaling up to 8 "CPU Queue Sets"
@@ -340,7 +336,7 @@
 	nclip = 384		# number of clip region entries
 	nfilter = 368		# number of filter region entries
 	nserver = 128		# number of server region entries
-	nhash = 14336		# number of hash region entries
+	nhash = 16384		# number of hash region entries
 	protocol = nic_vm, ofld, rddp, rdmac, iscsi_initiator_pdu
 	tp_l2t = 4096
 	tp_ddp = 1
@@ -348,27 +344,6 @@
 	tp_stag = 5
 	tp_pbl = 34
 	tp_rq = 10
-
-
-[function "6"]
-	wx_caps = all		# write/execute permissions for all commands
-	r_caps = all		# read permissions for all commands
-	nvi = 4			# NPORTS
-	niqflint = 34		# NPORTS*NCPUS + NMSIX_EXTRA
-	nethctrl = 32		# NPORTS*NCPUS
-	neq = 66		# NPORTS*NCPUS * 2 (FL, ETHCTRL/TX) + 2 (EXTRA)
-	nexactf = 32		# NPORTS + adding 28 exact entries for FCoE
-				# which is OK since < MIN(SUM PF0..3, PF4)
-				# and we never load PF0..3 and PF4 concurrently
-	cmask = all		# access to all channels
-	pmask = all		# access to all four ports ...
-	nhash = 2048
-	tp_l2t = 4
-	protocol = fcoe_initiator
-	tp_ddp = 2
-	fcoe_nfcf = 16
-	fcoe_nvnp = 32
-	fcoe_nssn = 1024
 
 
 # The following function, 1023, is not an actual PCIE function but is used to
@@ -416,13 +391,13 @@
 	r_caps = 0x86		# DMAQ | VF | PORT
 	nvi = 1			# 1 port
 	rssnvi = 1
-	niqflint = 11		# 8 "Queue Sets" + CIQ + FWEVTQ + FWDINTRQ 
-	nethctrl = 8		# 8 "Queue Sets"
-	neq = 16		# 8 "Queue Sets" * 2
+	niqflint = 8		# 4 "Queue Sets" + CIQ + FWEVTQ + FWDINTRQ 
+	nethctrl = 4		# 4 "Queue Sets"
+	neq = 8			# 4 "Queue Sets" * 2
 	nexactf = 4
 	cmask = all		# access to all channels
 	pmask = all 		# access to all ports
-	nqpcq = 78
+	nqpcq = 32
 	protocol = ofld, rdmac
 
 
@@ -443,7 +418,7 @@
 
 [port "0"]
 	dcb = ppp, dcbx		# configure for DCB PPP and enable DCBX offload
-	dcb_dcbx_protocol = auto
+	dcb_dcbx_protocol = ieee
 	hwm = 60
 	lwm = 15
 	dwm = 30
@@ -453,7 +428,7 @@
 
 [port "1"]
 	dcb = ppp, dcbx
-	dcb_dcbx_protocol = auto
+	dcb_dcbx_protocol = ieee
 	hwm = 60
 	lwm = 15
 	dwm = 30
@@ -462,8 +437,8 @@
 	dcb_app_tlv[2] = 3260, socketnum, 5
 
 [fini]
-	version = 0x08000025
-	checksum = 0x622eef46
+	version = 0x08000027
+	checksum = 0xc6302546
 
 # Total resources used by above allocations:
 #   Virtual Interfaces: 104
