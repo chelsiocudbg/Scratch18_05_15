@@ -76,6 +76,7 @@
 0075-iw_cxgb4-only-clear-the-ARMED-bit-if-a-notification-.patch 	9f0a6d8b6adc91ff40c313561b87eedddda025b3
 0076-iw_cxgb4-Fix-cxgb4-arm-CQ-logic-w-IB_CQ_REPORT_MISSE.patch 	925b0e8e3e9d1c2f83c9aa14237691d3e1a28da0
 0077-iw_cxgb4-only-insert-drain-cqes-if-wq-is-flushed.patch 		9599677b11423963fb91476959650c9f49066d37
+0078-cxgb4-Add-support-for-ethtool-i2c-dump.patch			f56ec6766dcfc2d533869d5631aa2c34bb52b87b
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
