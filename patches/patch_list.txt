@@ -83,6 +83,7 @@
 0082-cxgb4-collect-HMA-memory-dump.patch				4db0401f8ab1b5559bd0063209845c7a87b3dd71
 0083-cxgb4-skip-TX-and-RX-payload-regions-in-memory-dumps.patch		c1219653f3a5dc16334c43cbb8b3f5c27586c98b
 0084-cxgb4-collect-egress-and-ingress-SGE-queue-contexts.patch		736c3b94474eb3146d7accd8cc0e0ca27f1c4368
+0085-cxgb4-collect-PCIe-configuration-logs.patch			6078ab196b63b09c44e76e752dd729cb50aee253
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
