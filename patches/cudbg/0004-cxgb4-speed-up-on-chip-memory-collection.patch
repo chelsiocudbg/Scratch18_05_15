@@ -1,0 +1,427 @@
+From 28c7962563dbe413a0c82fc1a51fadec49ff7bc8 Mon Sep 17 00:00:00 2001
+From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+Date: Thu, 23 Nov 2017 18:03:56 +0530
+Subject: [PATCH 4/4] cxgb4: speed up on-chip memory collection
+
+Use GCC CPU intrinsic to do 256-bit reads instead of 32-bit reads
+when reading on-chip memory.  Also use all 8 PCIe memory windows
+to allow reading in parallel.
+
+Signed-off-by: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+---
+ drivers/net/ethernet/chelsio/cxgb4/Makefile        |  4 ++
+ drivers/net/ethernet/chelsio/cxgb4/cudbg_common.c  | 26 ++++++++
+ drivers/net/ethernet/chelsio/cxgb4/cudbg_entity.h  |  2 +
+ drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c     | 11 +--
+ .../net/ethernet/chelsio/cxgb4/cudbg_lib_common.h  |  3 +
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4.h         |  4 +-
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c | 38 +++++++++--
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c    | 26 ++++++--
+ drivers/net/ethernet/chelsio/cxgb4/t4_hw.c         | 78 ++++++++++++++++++++--
+ 9 files changed, 167 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/Makefile b/drivers/net/ethernet/chelsio/cxgb4/Makefile
+index f4423026..5697f5b9 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/Makefile
++++ b/drivers/net/ethernet/chelsio/cxgb4/Makefile
+@@ -3,6 +3,10 @@
+ #
+ 
+ obj-$(CONFIG_CHELSIO_T4) += cxgb4.o
++AVX := $(shell grep -c -w avx /proc/cpuinfo)
++ifneq ($(AVX),0)
++	ccflags-y := -mmmx -mavx -mpreferred-stack-boundary=4
++endif
+ 
+ cxgb4-objs := cxgb4_main.o l2t.o t4_hw.o sge.o clip_tbl.o cxgb4_ethtool.o \
+ 	      cxgb4_cudbg.o \
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cudbg_common.c b/drivers/net/ethernet/chelsio/cxgb4/cudbg_common.c
+index 9058b81a..9e973660 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cudbg_common.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cudbg_common.c
+@@ -43,6 +43,32 @@ int cudbg_get_buff(struct cudbg_init *pdbg_init,
+ 	return 0;
+ }
+ 
++int cudbg_get_buff_aligned(struct cudbg_init *pdbg_init,
++			   struct cudbg_buffer *pdbg_buff, u32 size,
++			   struct cudbg_buffer *pin_buff, u32 align)
++{
++	u64 off, mask = align - 1;
++	u32 offset;
++
++	offset = pdbg_buff->offset;
++	off = (uintptr_t)((u8 *)pdbg_buff->data + offset) & mask;
++	offset += off;
++	if (offset + size > pdbg_buff->size)
++		return CUDBG_STATUS_NO_MEM;
++
++	if (pdbg_init->compress_type != CUDBG_COMPRESSION_NONE) {
++		pin_buff->data = (char *)pdbg_init->compress_buff;
++		pin_buff->offset = 0;
++		pin_buff->size = size;
++		return 0;
++	}
++
++	pin_buff->data = (char *)pdbg_buff->data + offset;
++	pin_buff->offset = offset;
++	pin_buff->size = size;
++	return 0;
++}
++
+ void cudbg_get_compress_buff(struct cudbg_init *pdbg_init,
+ 			     struct cudbg_buffer *pdbg_buff,
+ 			     struct cudbg_buffer *pin_buff)
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cudbg_entity.h b/drivers/net/ethernet/chelsio/cxgb4/cudbg_entity.h
+index 2e71e334..2d70e637 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cudbg_entity.h
++++ b/drivers/net/ethernet/chelsio/cxgb4/cudbg_entity.h
+@@ -25,6 +25,8 @@
+ #define MC1_FLAG 4
+ #define HMA_FLAG 5
+ 
++#define CUDBG_MEM_ALIGN 32
++
+ #define CUDBG_ENTITY_SIGNATURE 0xCCEDB001
+ 
+ struct cudbg_mbox_log {
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
+index fcd67f7e..b641d8c4 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
+@@ -486,13 +486,13 @@ int cudbg_collect_fw_devlog(struct cudbg_init *pdbg_init,
+ 
+ 	/* Collect FW devlog */
+ 	if (dparams->start != 0) {
+-		spin_lock(&padap->win0_lock);
++		spin_lock(&padap->win_lock[0]);
+ 		rc = t4_memory_rw(padap, padap->params.drv_memwin,
+ 				  dparams->memtype, dparams->start,
+ 				  dparams->size,
+ 				  (__be32 *)(char *)temp_buff.data,
+ 				  1);
+-		spin_unlock(&padap->win0_lock);
++		spin_unlock(&padap->win_lock[0]);
+ 		if (rc) {
+ 			cudbg_err->sys_err = CUDBG_SYSTEM_ERROR;
+ 			cudbg_put_buff(&temp_buff, dbg_buff);
+@@ -966,7 +966,8 @@ static int cudbg_read_fw_mem(struct cudbg_init *pdbg_init,
+ 
+ 		bytes = min_t(unsigned long, bytes_left,
+ 			      (unsigned long)CUDBG_CHUNK_SIZE);
+-		rc = cudbg_get_buff(pdbg_init, dbg_buff, bytes, &temp_buff);
++		rc = cudbg_get_buff_aligned(pdbg_init, dbg_buff, bytes,
++					    &temp_buff, CUDBG_MEM_ALIGN);
+ 		if (rc)
+ 			return rc;
+ 
+@@ -977,12 +978,12 @@ static int cudbg_read_fw_mem(struct cudbg_init *pdbg_init,
+ 				/* TX and RX Payload regions can't overlap */
+ 				goto skip_read;
+ 
+-		spin_lock(&padap->win0_lock);
++		spin_lock(&padap->win_lock[0]);
+ 		rc = t4_memory_rw(padap, MEMWIN_NIC, mem_type,
+ 				  bytes_read, bytes,
+ 				  (__be32 *)temp_buff.data,
+ 				  1);
+-		spin_unlock(&padap->win0_lock);
++		spin_unlock(&padap->win_lock[0]);
+ 		if (rc) {
+ 			cudbg_err->sys_err = rc;
+ 			cudbg_put_buff(&temp_buff, dbg_buff);
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib_common.h b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib_common.h
+index 0b6d2303..6977a882 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib_common.h
++++ b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib_common.h
+@@ -101,6 +101,9 @@ struct cudbg_flash_hdr {
+ int cudbg_get_buff(struct cudbg_init *pdbg_init,
+ 		   struct cudbg_buffer *pdbg_buff, u32 size,
+ 		   struct cudbg_buffer *pin_buff);
++int cudbg_get_buff_aligned(struct cudbg_init *pdbg_init,
++			   struct cudbg_buffer *pdbg_buff, u32 size,
++			   struct cudbg_buffer *pin_buff, u32 align);
+ void cudbg_get_compress_buff(struct cudbg_init *pdbg_init,
+ 			     struct cudbg_buffer *pdbg_buff,
+ 			     struct cudbg_buffer *pin_buff);
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
+index 99fac850..92895429 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
++++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
+@@ -835,7 +835,9 @@ struct adapter {
+ 			 */
+ 
+ 	spinlock_t stats_lock;
+-	spinlock_t win0_lock ____cacheline_aligned_in_smp;
++	spinlock_t list_lock; /* Lock for accessing win_flag */
++	spinlock_t win_lock[8] ____cacheline_aligned_in_smp;
++	unsigned int win_flag;
+ 
+ 	/* Ethtool Dump */
+ 	struct ethtool_dump eth_dump;
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c
+index 83b09d38..6e436a6d 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_debugfs.c
+@@ -1119,11 +1119,11 @@ static int devlog_open(struct inode *inode, struct file *file)
+ 	 */
+ 	dinfo->nentries = (dparams->size / sizeof(struct fw_devlog_e));
+ 	dinfo->first = 0;
+-	spin_lock(&adap->win0_lock);
++	spin_lock(&adap->win_lock[0]);
+ 	ret = t4_memory_rw(adap, adap->params.drv_memwin, dparams->memtype,
+ 			   dparams->start, dparams->size, (__be32 *)dinfo->log,
+ 			   T4_MEMORY_READ);
+-	spin_unlock(&adap->win0_lock);
++	spin_unlock(&adap->win_lock[0]);
+ 	if (ret) {
+ 		seq_release_private(inode, file);
+ 		return ret;
+@@ -2746,6 +2746,30 @@ int mem_open(struct inode *inode, struct file *file)
+ 	return 0;
+ }
+ 
++static int cxgb4_get_win_lock_index(struct adapter *adap)
++{
++	int i;
++
++	spin_lock(&adap->list_lock);
++	for (i = 0; i < 8; i++) {
++		if (!(adap->win_flag & 1 << i)) {
++			adap->win_flag |= 1 << i;
++			break;
++		}
++	}
++	spin_unlock(&adap->list_lock);
++	if (i == 8)
++		i = 0;
++	return i;
++}
++
++static void cxgb4_put_win_lock_index(struct adapter *adap, int index)
++{
++	spin_lock(&adap->list_lock);
++	adap->win_flag &= ~(1 << index);
++	spin_unlock(&adap->list_lock);
++}
++
+ static ssize_t mem_read(struct file *file, char __user *buf, size_t count,
+ 			loff_t *ppos)
+ {
+@@ -2754,7 +2778,7 @@ static ssize_t mem_read(struct file *file, char __user *buf, size_t count,
+ 	unsigned int mem = (uintptr_t)file->private_data & 3;
+ 	struct adapter *adap = file->private_data - mem;
+ 	__be32 *data;
+-	int ret;
++	int ret, idx;
+ 
+ 	if (pos < 0)
+ 		return -EINVAL;
+@@ -2767,9 +2791,11 @@ static ssize_t mem_read(struct file *file, char __user *buf, size_t count,
+ 	if (!data)
+ 		return -ENOMEM;
+ 
+-	spin_lock(&adap->win0_lock);
+-	ret = t4_memory_rw(adap, 0, mem, pos, count, data, T4_MEMORY_READ);
+-	spin_unlock(&adap->win0_lock);
++	idx = cxgb4_get_win_lock_index(adap);
++	spin_lock_irq(&adap->win_lock[idx]);
++	ret = t4_memory_rw(adap, idx, mem, pos, count, data, T4_MEMORY_READ);
++	spin_unlock_irq(&adap->win_lock[idx]);
++	cxgb4_put_win_lock_index(adap, idx);
+ 	if (ret) {
+ 		t4_free_mem(data);
+ 		return ret;
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
+index 26ade500..cc81f7e4 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
+@@ -2078,11 +2078,11 @@ static int read_eq_indices(struct adapter *adap, u16 qid, u16 *pidx, u16 *cidx)
+ 	__be64 indices;
+ 	int ret;
+ 
+-	spin_lock(&adap->win0_lock);
++	spin_lock(&adap->win_lock[0]);
+ 	ret = t4_memory_rw(adap, 0, MEM_EDC0, addr,
+ 			   sizeof(indices), (__be32 *)&indices,
+ 			   T4_MEMORY_READ);
+-	spin_unlock(&adap->win0_lock);
++	spin_unlock(&adap->win_lock[0]);
+ 	if (!ret) {
+ 		*cidx = (be64_to_cpu(indices) >> 25) & 0xffff;
+ 		*pidx = (be64_to_cpu(indices) >> 9) & 0xffff;
+@@ -2179,9 +2179,9 @@ int cxgb4_read_tpte(struct net_device *dev, u32 stag, __be32 *tpte)
+ 		}
+ 	}
+ 
+-	spin_lock(&adap->win0_lock);
++	spin_lock(&adap->win_lock[0]);
+ 	ret = t4_memory_rw(adap, 0, memtype, memaddr, 32, tpte, T4_MEMORY_READ);
+-	spin_unlock(&adap->win0_lock);
++	spin_unlock(&adap->win_lock[0]);
+ 	return ret;
+ 
+ err:
+@@ -3154,8 +3154,16 @@ void t4_fatal_err(struct adapter *adap)
+ static void setup_memwin(struct adapter *adap)
+ {
+ 	u32 nic_win_base = t4_get_util_window(adap);
++	u8 i;
+ 
+ 	t4_setup_memwin(adap, nic_win_base, MEMWIN_NIC);
++
++	/* Split unused MEMWIN1 window into remaining windows of
++	 * MEMWIN0_APERTURE size each.  This allows us to utilize
++	 * all 8 memory windows for parallel collection of MC.
++	 */
++	for (i = 1; i <= MEMWIN_RSVD7; i++)
++		t4_setup_memwin(adap, MEMWIN1_BASE + (i * MEMWIN0_APERTURE), i);
+ }
+ 
+ static void setup_memwin_rdma(struct adapter *adap)
+@@ -3420,7 +3428,7 @@ static int adap_init0_phy(struct adapter *adap)
+ 
+ 	/* Load PHY Firmware onto adapter.
+ 	 */
+-	ret = t4_load_phy_fw(adap, MEMWIN_NIC, &adap->win0_lock,
++	ret = t4_load_phy_fw(adap, MEMWIN_NIC, &adap->win_lock[0],
+ 			     phy_info->phy_fw_version,
+ 			     (u8 *)phyf->data, phyf->size);
+ 	if (ret < 0)
+@@ -3535,7 +3543,7 @@ static int adap_init0_config(struct adapter *adapter, int reset)
+ 				mtype = FW_PARAMS_PARAM_Y_G(val[0]);
+ 				maddr = FW_PARAMS_PARAM_Z_G(val[0]) << 16;
+ 
+-				spin_lock(&adapter->win0_lock);
++				spin_lock(&adapter->win_lock[0]);
+ 				ret = t4_memory_rw(adapter, 0, mtype, maddr,
+ 						   size, data, T4_MEMORY_WRITE);
+ 				if (ret == 0 && resid != 0) {
+@@ -3553,7 +3561,7 @@ static int adap_init0_config(struct adapter *adapter, int reset)
+ 							   4, &last.word,
+ 							   T4_MEMORY_WRITE);
+ 				}
+-				spin_unlock(&adapter->win0_lock);
++				spin_unlock(&adapter->win_lock[0]);
+ 			}
+ 		}
+ 
+@@ -4960,6 +4968,10 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 	spin_lock_init(&adapter->stats_lock);
+ 	spin_lock_init(&adapter->tid_release_lock);
+ 	spin_lock_init(&adapter->mbox_lock);
++	spin_lock_init(&adapter->list_lock);
++
++	for (i = 0; i < ARRAY_SIZE(adapter->win_lock); i++)
++		spin_lock_init(&adapter->win_lock[i]);
+ 
+ 	INIT_LIST_HEAD(&adapter->mlist.list);
+ 
+diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+index 6e1262b0..40422cda 100644
+--- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
++++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
+@@ -34,6 +34,17 @@
+ 
+ #include <linux/init.h>
+ #include <linux/delay.h>
++
++#ifdef __AVX__
++#pragma GCC push_options
++#pragma GCC target("mmx", "avx")
++#define  _MM_MALLOC_H_INCLUDED
++#include <x86intrin.h>
++#undef _MM_MALLOC_H_INCLUDED
++#pragma GCC pop_options
++#include <asm/i387.h>
++#endif
++
+ #include "cxgb4.h"
+ #include "t4_regs.h"
+ #include "t4_values.h"
+@@ -623,6 +634,19 @@ static int t4_edc_err_read(struct adapter *adap, int idx)
+ 	return 0;
+ }
+ 
++#ifdef __AVX__
++static u8 *t4_get_aligned_addr(u8 *addr, int align)
++{
++	u64 off, mask = align - 1;
++	u8 *aligned_addr;
++
++	off = (u64)addr & mask;
++	aligned_addr = addr + off;
++
++	return aligned_addr;
++}
++#endif
++
+ /**
+  *	t4_memory_rw - read/write EDC 0, EDC 1 or MC via PCIE memory window
+  *	@adap: the adapter
+@@ -750,14 +774,56 @@ int t4_memory_rw(struct adapter *adap, int win, int mtype, u32 addr,
+ 	 * swizzels.
+ 	 */
+ 	while (len > 0) {
+-		if (dir == T4_MEMORY_READ)
+-			*buf++ = le32_to_cpu((__force __le32)t4_read_reg(adap,
+-						mem_base + offset));
+-		else
++		if (dir == T4_MEMORY_READ) {
++#ifdef __AVX__
++			u8 *reg_addr = (u8 *)adap->regs + mem_base + offset;
++			u8 *src_addr, *dst_addr;
++			__m256i ymm0;
++			u32 read_len, ymmlen = sizeof(ymm0);
++
++			src_addr = t4_get_aligned_addr(reg_addr, ymmlen);
++			dst_addr = t4_get_aligned_addr((u8 *)buf, ymmlen);
++			read_len = min_t(u32, len, ymmlen);
++
++			/* Don't use intrinsic for following cases:
++			 * 1. If reading current offset + 256-bits would
++			 *    exceed current window aperture.
++			 * 2. Source or Destination address is not aligned
++			 *    to 256-bits.
++			 * 3. There are less than 256-bits left to read.
++			 */
++			if (offset + ymmlen > mem_aperture ||
++			    src_addr != reg_addr || dst_addr != (u8 *)buf ||
++			    read_len < ymmlen) {
++				*buf++ = le32_to_cpu((__force __le32)
++						     t4_read_reg(adap,
++						     mem_base + offset));
++				offset += sizeof(__be32);
++				len -= sizeof(__be32);
++			} else {
++				kernel_fpu_begin();
++				ymm0 = _mm256_loadu_si256((const __m256i *)
++							  reg_addr);
++				_mm256_storeu_si256((__m256i *)buf, ymm0);
++				kernel_fpu_end();
++
++				buf += read_len / sizeof(u32);
++				offset += read_len;
++				len -= read_len;
++			}
++#else
++			*buf++ = le32_to_cpu((__force __le32)
++					     t4_read_reg(adap,
++							 mem_base + offset));
++			offset += sizeof(__be32);
++			len -= sizeof(__be32);
++#endif
++		} else {
+ 			t4_write_reg(adap, mem_base + offset,
+ 				     (__force u32)cpu_to_le32(*buf++));
+-		offset += sizeof(__be32);
+-		len -= sizeof(__be32);
++			offset += sizeof(__be32);
++			len -= sizeof(__be32);
++		}
+ 
+ 		/* If we've reached the end of our current window aperture,
+ 		 * move the PCI-E Memory Window on to the next.  Note that
+-- 
+2.14.1
+
