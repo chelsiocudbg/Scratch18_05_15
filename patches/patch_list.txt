@@ -81,6 +81,7 @@
 0080-cxgb4-collect-on-chip-memory-information.patch			123e25c4a5658be27f08ed0fb85ade34683e5dc7
 0081-cxgb4-collect-MC-memory-dump.patch					a1c69520f7851ce3ffa571df451c5ad31092f517
 0082-cxgb4-collect-HMA-memory-dump.patch				4db0401f8ab1b5559bd0063209845c7a87b3dd71
+0083-cxgb4-skip-TX-and-RX-payload-regions-in-memory-dumps.patch		c1219653f3a5dc16334c43cbb8b3f5c27586c98b
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
