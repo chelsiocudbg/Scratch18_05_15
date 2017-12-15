@@ -1,0 +1,95 @@
+From 6698fde153fb98ada7ce8485ea22ff9193a1bf80 Mon Sep 17 00:00:00 2001
+From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
+Date: Wed, 6 Dec 2017 18:55:25 +0530
+Subject: [PATCH 87/87] kernel/panic/kexec: fix "crash_kexec_post_notifiers"
+ option issue in oops path
+
+commit 5375b708f2547f70cd2bee2fd8663ab7035f9551
+Author: HATAYAMA Daisuke <d.hatayama@jp.fujitsu.com>
+Date:   Tue Jun 30 14:57:46 2015 -0700
+
+    kernel/panic/kexec: fix "crash_kexec_post_notifiers" option issue in oops path
+
+    Commit f06e5153f4ae2e ("kernel/panic.c: add "crash_kexec_post_notifiers"
+    option for kdump after panic_notifers") introduced
+    "crash_kexec_post_notifiers" kernel boot option, which toggles wheather
+    panic() calls crash_kexec() before panic_notifiers and dump kmsg or after.
+
+    The problem is that the commit overlooks panic_on_oops kernel boot option.
+     If it is enabled, crash_kexec() is called directly without going through
+    panic() in oops path.
+
+    To fix this issue, this patch adds a check to "crash_kexec_post_notifiers"
+    in the condition of kexec_should_crash().
+
+    Also, put a comment in kexec_should_crash() to explain not obvious things
+    on this patch.
+
+    Signed-off-by: HATAYAMA Daisuke <d.hatayama@jp.fujitsu.com>
+    Acked-by: Baoquan He <bhe@redhat.com>
+    Tested-by: Hidehiro Kawai <hidehiro.kawai.ez@hitachi.com>
+    Reviewed-by: Masami Hiramatsu <masami.hiramatsu.pt@hitachi.com>
+    Cc: Vivek Goyal <vgoyal@redhat.com>
+    Cc: Ingo Molnar <mingo@kernel.org>
+    Cc: Hidehiro Kawai <hidehiro.kawai.ez@hitachi.com>
+    Cc: Baoquan He <bhe@redhat.com>
+    Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+    Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ include/linux/kernel.h |  3 +++
+ kernel/kexec.c         | 11 +++++++++++
+ kernel/panic.c         |  2 +-
+ 3 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/kernel.h b/include/linux/kernel.h
+index 4ee80934..cc4fef21 100644
+--- a/include/linux/kernel.h
++++ b/include/linux/kernel.h
+@@ -444,6 +444,9 @@ extern int panic_on_unrecovered_nmi;
+ extern int panic_on_io_nmi;
+ extern int panic_on_warn;
+ extern int sysctl_panic_on_stackoverflow;
++
++extern bool crash_kexec_post_notifiers;
++
+ /*
+  * panic_cpu is used for synchronizing panic() and crash_kexec() execution. It
+  * holds a CPU number which is executing panic() currently. A value of
+diff --git a/kernel/kexec.c b/kernel/kexec.c
+index 9a87e53b..a36eb957 100644
+--- a/kernel/kexec.c
++++ b/kernel/kexec.c
+@@ -85,6 +85,17 @@ struct resource crashk_low_res = {
+ 
+ int kexec_should_crash(struct task_struct *p)
+ {
++	/*
++	 * If crash_kexec_post_notifiers is enabled, don't run
++	 * crash_kexec() here yet, which must be run after panic
++	 * notifiers in panic().
++	 */
++	if (crash_kexec_post_notifiers)
++		return 0;
++	/*
++	 * There are 4 panic() calls in do_exit() path, each of which
++	 * corresponds to each of these 4 conditions.
++	 */
+ 	if (in_interrupt() || !p->pid || is_global_init(p) || panic_on_oops)
+ 		return 1;
+ 	return 0;
+diff --git a/kernel/panic.c b/kernel/panic.c
+index a0d18ebf..072da89c 100644
+--- a/kernel/panic.c
++++ b/kernel/panic.c
+@@ -32,7 +32,7 @@ static unsigned long tainted_mask;
+ static int pause_on_oops;
+ static int pause_on_oops_flag;
+ static DEFINE_SPINLOCK(pause_on_oops_lock);
+-static bool crash_kexec_post_notifiers;
++bool crash_kexec_post_notifiers;
+ int panic_on_warn __read_mostly;
+ 
+ int panic_timeout = CONFIG_PANIC_TIMEOUT;
+-- 
+2.14.1
+
