@@ -78,6 +78,7 @@
 0077-iw_cxgb4-only-insert-drain-cqes-if-wq-is-flushed.patch 		9599677b11423963fb91476959650c9f49066d37
 0078-cxgb4-Add-support-for-ethtool-i2c-dump.patch			f56ec6766dcfc2d533869d5631aa2c34bb52b87b
 0079-cxgb4-collect-SGE-queue-context-dump.patch				9e5c598c720792e210f83964441ee1c99451e8d1
+0080-cxgb4-collect-on-chip-memory-information.patch			123e25c4a5658be27f08ed0fb85ade34683e5dc7
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
 0002-cxgb4-add-cudbg-support.patch					Not available in upstream.
