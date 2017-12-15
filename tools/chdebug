@@ -16,12 +16,18 @@ cmd_args=${#args[@]}
 arg_stat=0
 myname=$(basename $0)
 fbusid=""
-extract_debugfs_dir=""
-busp=""
+global_print_once=""
 cudbgmbox=6
-cudbgbusp=""
 cudbgpayload=""
 declare -A toe
+
+function handle_interrupt
+{
+	kill -SIGTERM 0
+	wait
+}
+
+trap handle_interrupt SIGINT SIGTERM
 
 if [[ $cmd_args -ne 0 ]] ; then
 	for (( i=0;i<$cmd_args;i++)); do 
@@ -73,7 +79,7 @@ fi
 
 proc_sys=/proc/sys
 offload_devices_Path=/proc/net/offload/devices
-logdir_name=chelsio_debug_logs
+logdir_name=IBM_chelsio_debug_logs
 logdir=${PWD}/$logdir_name
 debugfs_dir=$logdir/debugfs
 toe_dir=$logdir/toe
@@ -81,7 +87,6 @@ qdesc_dir=$logdir/qdesc
 logfile=${logdir}/chelsio_debug.log
 cudbgdir=${logdir}/cudbg
 cudbglog=${cudbgdir}/cudbg
-varlogdir=${logdir}/var_log_msgs
 debugfs_path=/sys/kernel/debug
 ch_debugfs=$debugfs_path/cxgb4
 
@@ -90,7 +95,7 @@ if [ -d $logdir ] ; then
 	mkdir -p $old_dir
 	mv $logdir $old_dir/$(date '+%d_%b_%Y_%H_%M_%S')
 fi
-mkdir -p $logdir $varlogdir $cudbgdir $toe_dir $debugfs_dir
+mkdir -p $logdir $cudbgdir $toe_dir $debugfs_dir
 
 function header
 {
@@ -155,7 +160,9 @@ fi
 
 function is_driver_loaded
 {
-	driver=$1
+	local driver res
+
+	driver="$1"
 	res=$(lsmod | grep $driver)
 	if [[ $res == "" ]];then
 		echo 0
@@ -183,6 +190,13 @@ function getfullbuspath
 }
 getfullbuspath
 
+function print_once
+{
+	if [[ -z "$global_print_once" ]]; then
+		echo "$1" "$2"
+	fi
+}
+
 function writelog
 {
 	echo $1 >> $logfile
@@ -203,8 +217,10 @@ function printhead2
 
 function cmdlog
 {
+	local cmd
+
 	writelog ""
-	cmd=$1
+	cmd="$1"
 	printhead2 "$cmd"
 	if [[ $2 -eq 1 ]] ; then
 		$cmd | tee -a $logfile
@@ -214,38 +230,233 @@ function cmdlog
 	sync
 }
 
-function get_debugfs_entity
+function get_mem_region_start
 {
-	entity=$1
-	driver=$2
+	local memtype memtype_region memtype_base
+	local entity region base
 
+	entity="$1"
+	memtype="$2"
+	region="$(grep -i "$entity" $debugfs_path/$driver/$busp/meminfo)"
+	base=${region%-*}  # Get everything before -
+	base=${base#*:}    # Get everything after :
+
+	###
+	# Get base relative to @memtype (i.e. EDC*/MC* start)
+	###
+	memtype_region="$(grep -i "$memtype" $debugfs_path/$driver/$busp/meminfo)"
+	memtype_base=${memtype_region%-*}
+	memtype_base=${memtype_base#*:}
+
+	echo $(($base - $memtype_base))
+}
+
+function get_mem_region_end
+{
+	local memtype memtype_region memtype_base
+	local entity region base
+
+	entity="$1"
+	memtype="$2"
+	region="$(grep -i "$entity" $debugfs_path/$driver/$busp/meminfo)"
+	end=${region#*-}   # Get everything after -
+	end=${end%[*}      # Get everything before [
+
+	###
+	# Get end relative to @memtype (i.e. EDC*/MC* start)
+	###
+	memtype_region="$(grep -i "$memtype" $debugfs_path/$driver/$busp/meminfo)"
+	memtype_base=${memtype_region%-*}
+	memtype_base=${memtype_base#*:}
+
+	echo $(($end - $memtype_base))
+}
+
+function round_up
+{
+	local x y
+
+	x="$1"
+	y="$2"
+	echo $((($x + $y - 1) / $y * $y))
+}
+
+function round_down
+{
+	local x y
+
+	x="$1"
+	y="$2"
+	echo $((($x / $y) * $y))
+}
+
+function get_debugfs_mc_entity
+{
+	local tx_payload_base tx_payload_end
+	local rx_payload_base rx_payload_end
+	local src_debugfs_path src_zero_path
+	local entity base end size rem_size
+	local chunk_size blk_size count
+	local ddcmd src_path dst_path
+	local i j k cur_off cur_end
+	local cpu_start ncpu
+
+	entity="$1"
+
+	# Get mc start and end
+	base=$(get_mem_region_start "$entity" "$entity")
+	end=$(get_mem_region_end "$entity" "$entity")
+	size=$(($end - $base + 1))
+
+	# Fill dd command parameters
+	chunk_size=$((256 * 1024 * 1024)) # 256 MB
+	blk_size=$((32 * 1024 * 1024)) # 32 MB
+	count=$(($chunk_size / $blk_size))
+	src_debugfs_path="${debugfs_path}/$driver/${busp}/${entity}"
+	src_zero_path="/dev/zero"
+	dst_path="${extract_debugfs_dir}/$driver"
+
+	# Get number of cpus.  Max 8 needed per adapter.
+	cpu_start="$3"
+	ncpu="$4"
+
+	# Get TX and RX Payload base and end
+	tx_payload_base=$(get_mem_region_start "Tx payload" "$entity")
+	tx_payload_end=$(get_mem_region_end "Tx payload" "$entity")
+	rx_payload_base=$(get_mem_region_start "Rx payload" "$entity")
+	rx_payload_end=$(get_mem_region_end "Rx payload" "$entity")
+
+	###
+	# Round up payload base to @chunk_size and round down
+	# payload end to @chunk_size.  Only full chunks will
+	# be skipped.
+	###
+	tx_payload_base=$(round_up $tx_payload_base $chunk_size)
+	tx_payload_end=$(round_down $tx_payload_end $chunk_size)
+	rx_payload_base=$(round_up $rx_payload_base $chunk_size)
+	rx_payload_end=$(round_down $rx_payload_end $chunk_size)
+
+	# Distribute work across cpus
+	rem_size=$size
+	j=0
+	while [ $rem_size -gt 0 ]; do
+		for i in `seq 0 $(($ncpu - 1))`; do
+			cur_off=$(($blk_size * $count * $j))
+			src_path="$src_debugfs_path"
+			if [[ -z $cudbgpayload ]]; then
+				if [[ $cur_off -ge $tx_payload_base && $(($cur_off + $chunk_size)) -le $tx_payload_end  ]]; then
+					# Fill Payload full chunk with zero
+					src_path="$src_zero_path"
+				fi
+				if [[ $cur_off -ge $rx_payload_base && $(($cur_off + $chunk_size)) -le $rx_payload_end ]]; then
+					# Fill Payload full chunk with zero
+					src_path="$src_zero_path"
+				fi
+			fi
+			ddcmd="$DD_BIN if=$src_path of=$dst_path/${entity}_task_$j bs=$blk_size count=$count skip=$(($count * $j))"
+			k=$(($i+$cpu_start))
+			printhead2 "taskset $((1<<$k)) $ddcmd"
+			taskset $((1<<$k)) $ddcmd > /dev/null 2>&1 &
+			j=$(($j + 1))
+			rem_size=$(($rem_size - $chunk_size))
+			if [[ $rem_size -le 0 ]]; then
+				break
+			fi
+		done
+		wait
+	done
+	chmod 444 ${dst_path}/${entity}_task_*
+}
+
+function get_debugfs_mc
+{
+	local extract_debugfs_dir
+	local cur_cpu ncpu
+	local driver busp
+	local entity
+	local cmd
+
+	entity="$1"
+	driver="$2"
+	busp="$3"
+	cur_cpu="$4"
+	ncpu="$5"
+
+	extract_debugfs_dir=$debugfs_dir/$busp
 	if ! [[ -d $extract_debugfs_dir/$driver ]];then
 		mkdir -p $extract_debugfs_dir/$driver
 	fi
 
 	if [[ -f $debugfs_path/$driver/$busp/$entity ]];then
-		echo -e "\nCollecting $entity"
-		entity_file=$extract_debugfs_dir/$driver/$entity
-		cmd="cp  $debugfs_path/$driver/$busp/$entity $entity_file"
-		echo $cmd
-		cmdlog "$cmd" 1
-		chmod 444 $entity_file
-		return 0
-	else
-		return 1
+		if [[ ! -z $DD_BIN ]]; then
+			get_debugfs_mc_entity "$entity" "$extract_debugfs_dir" "$cur_cpu" "$ncpu"
+			return 0
+		fi
 	fi
+	return 1
 }
 
-function create_tar_package
+function get_debugfs_entity_flash
 {
-	which tar > /dev/null 2>&1
-	if [[ $? -eq 0 ]] ; then 
-		echo -n "Creating tar package : "
-		tar mcjf ${logdir}$1.tar.bz2 ${logdir_name} >/dev/null 2>&1 
-		if [[ $? -eq 0 ]] ; then 
-		echo "Done" ; echo -e "\nThe $(if [[ $1 ]] ; then echo "CUDBG Adapter"; else echo "OS" ; fi ) logs are archived at following location ${logdir}$1.tar.bz2"
-		else echo "Failed" ; fi
+	local extract_debugfs_dir
+	local entity entity_file
+	local driver busp cmd
+	local block_size
+
+	entity="$1"
+	driver="$2"
+	busp="$3"
+	block_size=$((2 * 1024 * 1024))
+
+	extract_debugfs_dir=$debugfs_dir/$busp
+	if ! [[ -d $extract_debugfs_dir/$driver ]];then
+		mkdir -p $extract_debugfs_dir/$driver
 	fi
+
+	if [[ -f $debugfs_path/$driver/$busp/$entity ]];then
+		entity_file=$extract_debugfs_dir/$driver/$entity
+		if [[ ! -z $DD_BIN ]]; then
+			cmd="$DD_BIN if=$debugfs_path/$driver/$busp/$entity of=$entity_file bs=$block_size count=1 skip=0"
+		else
+			cmd="cp $debugfs_path/$driver/$busp/$entity $entity_file"
+		fi
+		cmdlog "$cmd" 1 > /dev/null 2>&1
+		chmod 444 $entity_file
+		return 0
+	fi
+	return 1
+}
+
+function get_debugfs_entity
+{
+	local extract_debugfs_dir
+	local entity entity_file
+	local block_size
+	local driver cmd
+	local busp
+
+	entity=$1
+	driver=$2
+	busp="$3"
+	block_size=$((8 * 1024 * 1024))
+
+	extract_debugfs_dir=$debugfs_dir/$busp
+	if ! [[ -d $extract_debugfs_dir/$driver ]];then
+		mkdir -p $extract_debugfs_dir/$driver
+	fi
+
+	if [[ -f $debugfs_path/$driver/$busp/$entity ]];then
+		entity_file=$extract_debugfs_dir/$driver/$entity
+		if [[ ! -z $DD_BIN ]]; then
+			cmd="$DD_BIN if=${debugfs_path}/${driver}/${busp}/${entity} of=${entity_file} bs=$block_size"
+		else
+			cmd="cp $debugfs_path/$driver/$busp/$entity $entity_file"
+		fi
+		cmdlog "$cmd" 1 > /dev/null 2>&1
+		chmod 444 $entity_file
+		return 0
+	fi
+	return 1
 }
 
 function get_toe_intfs
@@ -350,69 +561,184 @@ side_effect_entities['obq_sge_rx_q0']="obq_sge_rx_q0"
 side_effect_entities['obq_sge_rx_q1']="obq_sge_rx_q1"
 side_effect_entities['cctrl']="cctrl"
 
-collect_entity_list=""
-
 function get_cudbg_entity
 {
-	local debugfs_entity=$1
-	local cudbg_entity=$2
+	local debugfs_entity mcregex
+	local cur_cpu ncpu
+	local busp rc
 
-	get_debugfs_entity $debugfs_entity "cxgb4"
-	local rc=$?
-	if [[ $rc == 1 ]]; then
-		collect_entity_list+=",$cudbg_entity"
+	debugfs_entity="$1"
+	busp="$2"
+	mcregex="^mc"
+
+	if [[ $debugfs_entity =~ $mcregex ]]; then
+		cur_cpu="$3"
+		ncpu="$4"
+		get_debugfs_mc "$debugfs_entity" "cxgb4" "$busp" "$cur_cpu" "$ncpu"
+	else
+		get_debugfs_entity $debugfs_entity "cxgb4" "$busp"
 	fi
+
+	rc=$?
+	if [[ $rc == 1 ]]; then
+		return 1
+	fi
+	return 0
 }
 
 function collect_cudbg_entities
 {
-	local pcie_path=$(dirname $1)
+	local collect_entity_list entity_list
+	local cudbg_busp busp buspath
+	local skip_str safe_str
+	local ch_intfs ch_intf
+	local pcie_path
+	local cmd res
+
+	buspath="$1"
+	busp=$(basename $buspath)
+	cudbgbusp=$(echo $busp | sed s/'\w*$'//)
+	cudbgbusp+=$cudbgmbox
+
+	pcie_path=$(dirname $buspath)
 	pcie_path+="/$cudbgbusp/"
 
-	echo -e "\n-------------------------------------------------"
-	echo "Collecting cudbg entities"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "Collecting cudbg entities"
 	###
 	# Convert array elements to comma separated string.
 	###
-	local skip_str=$(IFS=,; echo "${skip_entities[*]}")
-	local safe_str=$(IFS=,; echo "${safe_entities[*]}")
-
-	local res=$(is_driver_loaded cxgb4)
+	skip_str=$(IFS=,; echo "${skip_entities[*]}")
+	safe_str=$(IFS=,; echo "${safe_entities[*]}")
 
 	###
 	# Collect some entities from debugfs if cxgb4 is loaded.
 	# Else, collect from cudbg.
 	###
+	res=$(is_driver_loaded cxgb4)
 	if [[ $res == 0 ]]; then
-		cmdlog "$CUDBG_BIN --collect all $pcie_path ${cudbglog}_${cudbgbusp}.log --skip $skip_str $cudbgpayload 2>&1" 1
+		cmdlog "$CUDBG_BIN --collect all $pcie_path ${cudbglog}_${cudbgbusp}.log --skip $skip_str $cudbgpayload" 1 > /dev/null 2>&1
+		print_once "-e" "\n-------------------------------------------------"
 		return
 	fi
 
-	collect_entity_list=""
+	# get all chelsio inteface according to busp
+	ch_intfs=$(get_ch_intfs $busp)
+	# one interface is enought for getting qdesc for each Bus
+	ch_intf=$(echo $ch_intfs | awk '{print $1}')
+	if [[ $ch_intf == "" ]];then
+		echo "Chelsio Interfaces for $busp not found"
+		echo -e "-------------------------------------------------\n"
+		return
+	fi
+
+	cmd="ethtool -W $ch_intf 0x2"
+	printhead2 "$cmd"
+	$cmd > /dev/null 2>&1
+	res=$?
+	if [[ $res == 0 ]]; then
+		cmd="ethtool -w $ch_intf data ${cudbglog}_${cudbgbusp}.log"
+		printhead2 "$cmd"
+		$cmd > /dev/null 2>&1
+		res=$?
+		if [[ $res == 0 ]]; then
+			print_once "-e" "\n-------------------------------------------------"
+			return
+		fi
+	fi
 
 	for se_entity in ${!side_effect_entities[@]}; do
-		get_cudbg_entity $se_entity ${side_effect_entities[$se_entity]}
+		res=$(get_cudbg_entity $se_entity "$busp")
+		res=$?
+		if [[ $res == 1 ]]; then
+			collect_entity_list+=",${side_effect_entities[$se_entity]}"
+		fi
 	done
 
 	###
 	# Collect the safe entities and rest of the entities (i.e. those that
 	# failed to be collected from debugfs) via cudbg.
 	###
-	local entity_list=$safe_str
+	entity_list=$safe_str
 	entity_list+=$collect_entity_list
 
-	cmdlog "$CUDBG_BIN --collect $entity_list $pcie_path ${cudbglog}_${cudbgbusp}.log --skip $skip_str $cudbgpayload 2>&1" 1
-	echo -e "\n-------------------------------------------------"
+	cmdlog "$CUDBG_BIN --collect $entity_list $pcie_path ${cudbglog}_${cudbgbusp}.log --skip $skip_str $cudbgpayload" 1 > /dev/null 2>&1
+	print_once "-e" "\n-------------------------------------------------"
+}
+
+function collect_cudbg_edc
+{
+	local collect_entity_list
+	local busp cudbgbusp
+	local cur_cpu ncpu
+	local pcie_path
+	local eths
+	local res
+
+	eths="$1"
+
+	busp=$(basename $eths)
+	cudbgbusp=$(echo $busp | sed s/'\w*$'//)
+	cudbgbusp+=$cudbgmbox
+
+	pcie_path=$(dirname $eths)
+	pcie_path+="/$cudbgbusp/"
+
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "-e" "Collecting edc logs\n"
+
+	###
+	# Collect mc entities from debugfs if cxgb4 is loaded.
+	# Else, collect from cudbg.
+	###
+	res=$(is_driver_loaded cxgb4)
+	if [[ $res == 0 ]]; then
+		cmdlog "$CUDBG_BIN --collect edc0,edc1 $pcie_path ${cudbglog}_${cudbgbusp}_edc.log $cudbgpayload" 1 > /dev/null 2>&1
+		print_once "-e" "-------------------------------------------------\n"
+		return
+	fi
+
+	res=$(get_cudbg_entity "edc0" "$busp")
+	res=$?
+	if [[ $res == 1 ]]; then
+		collect_entity_list+="edc0"
+	fi
+
+	res=$(get_cudbg_entity "edc1" "$busp")
+	res=$?
+	if [[ $res == 1 ]]; then
+		collect_entity_list+="edc1"
+	fi
+
+	if ! [[ -z $collect_entity_list ]]; then
+		cmdlog "$CUDBG_BIN --collect $collect_entity_list $pcie_path ${cudbglog}_${cudbgbusp}_edc.log $cudbgpayload" 1 > /dev/null 2>&1
+	fi
+
+	print_once "-e" "-------------------------------------------------\n"
 }
 
 function collect_cudbg_mc
 {
-	local eths=$1
-	local mc=$2
-	local pcie_path=$(dirname $eths)
+	local collect_entity_list
+	local busp cudbgbusp
+	local cur_cpu ncpu
+	local mc cudbg_mc
+	local pcie_path
+	local eths
+	local res
+
+	eths="$1"
+	mc="$2"
+	cudbg_mc="$mc"
+	cur_cpu="$3"
+	ncpu="$4"
+
+	busp=$(basename $eths)
+	cudbgbusp=$(echo $busp | sed s/'\w*$'//)
+	cudbgbusp+=$cudbgmbox
+
+	pcie_path=$(dirname $eths)
 	pcie_path+="/$cudbgbusp/"
-	local res=$(is_driver_loaded cxgb4)
-	local cudbg_mc=$mc
 
 	###
 	# For T6, there is only one "mc" in debugfs.
@@ -423,45 +749,54 @@ function collect_cudbg_mc
 		cudbg_mc="mc0"
 	fi
 
-	echo -e "\n-------------------------------------------------"
-	echo -e "Collecting $mc logs for Bus id : $eths \nThis may take several minutes to complete"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "-e" "Collecting mc logs\n"
 
 	###
 	# Collect mc entities from debugfs if cxgb4 is loaded.
 	# Else, collect from cudbg.
 	###
+	res=$(is_driver_loaded cxgb4)
 	if [[ $res == 0 ]]; then
-		cmdlog "$CUDBG_BIN --collect $cudbg_mc $pcie_path ${cudbglog}_${cudbgbusp}_${mc}.log $cudbgpayload 2>&1" 1
-		echo -e "-------------------------------------------------\n"
+		cmdlog "$CUDBG_BIN --collect $cudbg_mc $pcie_path ${cudbglog}_${cudbgbusp}_${mc}.log $cudbgpayload" 1 > /dev/null 2>&1
+		print_once "-e" "-------------------------------------------------\n"
 		return
 	fi
 
-	collect_entity_list=""
-
-	get_cudbg_entity "$mc" "$cudbg_mc"
-
-	if ! [[ -z $collect_entity_list ]]; then
-		cmdlog "$CUDBG_BIN --collect $cudbg_mc $pcie_path ${cudbglog}_${cudbgbusp}_${mc}.log $cudbgpayload 2>&1 " 1
+	res=$(get_cudbg_entity "$mc" "$busp" "$cur_cpu" "$ncpu")
+	res=$?
+	if [[ $res == 1 ]]; then
+		collect_entity_list="$cudbg_mc"
 	fi
 
-	echo -e "-------------------------------------------------\n"
+	if ! [[ -z $collect_entity_list ]]; then
+		cmdlog "$CUDBG_BIN --collect $cudbg_mc $pcie_path ${cudbglog}_${cudbgbusp}_${mc}.log $cudbgpayload" 1 > /dev/null 2>&1
+	fi
+
+	print_once "-e" "-------------------------------------------------\n"
 }
 
 function collect_cudbg_mc_entities
 {
-	local buspath=$1
-	local card=$($CUDBG_BIN --debug vpddata $buspath | grep MN | awk '{print $2'})
-	local card_type=${card:1:1}
+	local card card_type
+	local cur_cpu ncpu
+	local buspath
 
+	buspath="$1"
+	card=$($CUDBG_BIN --debug vpddata $buspath | grep MN | awk '{print $2'})
+	card_type=${card:1:1}
+
+	cur_cpu="$2"
+	ncpu="$3"
 	###
 	# If it's a T6 card, collect "mc", if it exists.
 	# Otherwise, collect "mc0" and "mc1", if they exist.
 	###
 	if [[ $card_type == "6" ]]; then
-		collect_cudbg_mc $buspath "mc"
+		collect_cudbg_mc $buspath "mc" "$cur_cpu" "$ncpu"
 	else
-		collect_cudbg_mc $buspath "mc0"
-		collect_cudbg_mc $buspath "mc1"
+		collect_cudbg_mc $buspath "mc0" "$cur_cpu" "$ncpu"
+		collect_cudbg_mc $buspath "mc1" "$cur_cpu" "$ncpu"
 	fi
 }
 
@@ -477,6 +812,15 @@ QID_RSPQ="RspQ"
 QID_FL="FL"
 function collect_qdesc_utils
 {
+	local qid qids qidtype qtype
+	local file_dir qinfo_file
+	local qsizesarr qsizes
+	local qdesc qdesc_file
+	local proto_type
+	local ch_intfs
+	local cmd
+	local i
+
 	ch_intfs=$1
 	qinfo_file=$2
 	proto_type=$3
@@ -531,7 +875,6 @@ function collect_qdesc_utils
 	qsizes=$(cat $qinfo_file | awk 'BEGIN{RS="\nQ"} /  '"$proto_type"'/ {print "Q"$0}' | awk '/'"$qidtype"' size/ {print $3" "$4" "$5" "$6}')
 	qsizesarr=(${qsizes// / })
 	i=0
-	echo "Collecting qdesc for \"$proto_type\" with Qtype \"$qtype\""
 	# replacing proto type like "RDMA Control", "RDMA-CIQ" to "RDMA_Control" "RDMA_CIQ" for dir
 	proto_type=$(echo $proto_type | sed 's/ /_/g' | sed 's/-/_/g')
 	mkdir -p $qdesc_dir/$proto_type/$qtype
@@ -548,6 +891,8 @@ function collect_qdesc_utils
 
 function is_intfs_for_bus
 {
+	local eth_bus intfs busp
+
 	busp=$1
 	intfs=$2
 
@@ -566,6 +911,10 @@ function is_intfs_for_bus
 
 function get_ch_intfs
 {
+	local allintfs ch_intfs intfs
+	local vendor_id busp
+	local ret
+
 	busp=$1	
 	allintfs=$(ls /sys/class/net)
 	ch_intfs=()
@@ -586,6 +935,8 @@ function get_ch_intfs
 
 function is_any_intfs_up
 {
+	local ch_intfs intf
+	local ret
 	ch_intfs=$1
 
 	for intf in $ch_intfs;do
@@ -603,34 +954,33 @@ function is_any_intfs_up
 
 function collect_qdesc
 {
-	echo -e "\n-------------------------------------------------"
-	echo "Collecting Queue descriptors"
+	local ch_intfs ch_intf busp
+	local qinfo_file
+	local cxgbtool
+	local ret
+
+	busp="$1"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "Collecting Queue descriptors"
 
 	res=$(is_driver_loaded cxgb4)
 	if [[ $res == 0 ]]; then
-		echo "cxgb4 driver is not loaded"
-		echo -e "-------------------------------------------------"
+		print_once "cxgb4 driver is not loaded"
+		print_once "-e" "-------------------------------------------------"
 		return
 	fi
 
 	cxgbtool=$(which cxgbtool 2> /dev/null)
 	if [[ $cxgbtool == "" ]];then
-		echo -e "cxgbtool is not installed"
-		echo -e "-------------------------------------------------\n"
-		return
-	fi
-
-	qinfo_file="/sys/kernel/debug/cxgb4/$busp/sge_qinfo"
-	if ! [[ -f $qinfo_file ]]; then
-		echo -e "/sys/kernel/debug/cxgb4/$busp/sge_qinfo file not found"
-		echo -e "-------------------------------------------------\n"
+		print_once "-e" "cxgbtool is not installed"
+		print_once "-e" "-------------------------------------------------\n"
 		return
 	fi
 
 	# get all chelsio inteface according to busp
 	ch_intfs=$(get_ch_intfs $busp)
-	ret=$(is_any_intfs_up $ch_intfs)
-	if [[ $ret == "0" ]];then
+	res=$(is_any_intfs_up $ch_intfs)
+	if [[ $res == "0" ]];then
 		echo "Chelsio Interface is not Up"
 		echo -e "-------------------------------------------------\n"
 		return
@@ -654,7 +1004,14 @@ function collect_qdesc
 	###
 	res=$(ethtool -i $ch_intf | grep 'version' | awk '{print $2}' | grep 'ko')
 	if ! [[ -z $res ]]; then
-		echo -e "Inbox cxgb4 driver loaded"
+		print_once "-e" "Inbox cxgb4 driver loaded"
+		print_once "-e" "-------------------------------------------------\n"
+		return
+	fi
+
+	qinfo_file="/sys/kernel/debug/cxgb4/$busp/sge_qinfo"
+	if ! [[ -f $qinfo_file ]]; then
+		echo -e "/sys/kernel/debug/cxgb4/$busp/sge_qinfo file not found"
 		echo -e "-------------------------------------------------\n"
 		return
 	fi
@@ -673,23 +1030,28 @@ function collect_qdesc
 	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_CRYPTO $QID_TXQ 
 	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_CRYPTO $QID_RSPQ
 	collect_qdesc_utils $ch_intf $qinfo_file $PROTO_CRYPTO $QID_FL
-	echo -e "\n-------------------------------------------------"
+	print_once "-e" "\n-------------------------------------------------"
 }
 
 function collect_toe_sys_files
 {
-	echo -e "\n-------------------------------------------------"
-	echo  "Collecting toe sys files"
+	local extract_toe_dir
+	local busp cmd
+	local res
+
+	busp="$1"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "Collecting toe sys files"
 
 	res=$(is_driver_loaded "t4_tom")
 	if [[ $res == 0 ]];then
-		echo "t4_tom driver is not loaded"
-		echo -e "-------------------------------------------------"
+		print_once "t4_tom driver is not loaded"
+		print_once "-e" "-------------------------------------------------"
 		return
 	fi
 
 	if [[ ${#toe[@]} == 0 ]];then
-		echo "No chelsio offload devices found"
+		print_once "No chelsio offload devices found"
 		return
 	fi
 
@@ -701,148 +1063,166 @@ function collect_toe_sys_files
 	extract_toe_dir=$toe_dir/${toe[$busp]}_tom_${busp}
 	mkdir -p $extract_toe_dir
 	cmd="cp -r $proc_sys/toe/${toe[$busp]}_tom/*  $extract_toe_dir"
-	echo "$cmd"
 	$cmd
-	echo -e "-------------------------------------------------"
+	print_once "-e" "-------------------------------------------------"
 }
 
 function collect_cxgb4_debugfs
 {
-	echo -e "\n-------------------------------------------------"
-	echo "Collecting cxgb4 debugfs"
+	local i busp
+	local res
+
+	busp="$1"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "Collecting cxgb4 debugfs"
 	res=$(is_driver_loaded cxgb4)
 	if [[ $res == 0 ]]; then
-		echo "cxgb4 driver is not loaded"
-		echo -e "-------------------------------------------------"
+		print_once "cxgb4 driver is not loaded"
+		print_once "-e" "-------------------------------------------------"
 		return
 	fi
 
 	for i in {0..7};do
-		get_debugfs_entity "mbox$i" "cxgb4"
+		get_debugfs_entity "mbox$i" "cxgb4" "$busp"
 	done
 
-	get_debugfs_entity "mboxlog" "cxgb4"
+	get_debugfs_entity "mboxlog" "cxgb4" "$busp"
 
-	get_debugfs_entity "sge_qinfo" "cxgb4"
+	get_debugfs_entity "sge_qinfo" "cxgb4" "$busp"
 
-	get_debugfs_entity "qstats" "cxgb4"
+	get_debugfs_entity "qstats" "cxgb4" "$busp"
 
-	get_debugfs_entity "smt" "cxgb4"
+	get_debugfs_entity "smt" "cxgb4" "$busp"
 
-	get_debugfs_entity "blocked_fl" "cxgb4"
+	get_debugfs_entity "blocked_fl" "cxgb4" "$busp"
 
-	get_debugfs_entity "clip_tbl" "cxgb4"
+	get_debugfs_entity "clip_tbl" "cxgb4" "$busp"
 
-	get_debugfs_entity "devlog_level" "cxgb4"
+	get_debugfs_entity "devlog_level" "cxgb4" "$busp"
 
-	get_debugfs_entity "dmabuf" "cxgb4"
+	get_debugfs_entity "dmabuf" "cxgb4" "$busp"
 
-	get_debugfs_entity "filters" "cxgb4"
+	get_debugfs_entity "filters" "cxgb4" "$busp"
 
-	get_debugfs_entity "flash" "cxgb4"
+	get_debugfs_entity_flash "flash" "cxgb4" "$busp"
 
-	get_debugfs_entity "hash_filters" "cxgb4"
+	get_debugfs_entity "hash_filters" "cxgb4" "$busp"
 
-	get_debugfs_entity "inject_err" "cxgb4"
+	get_debugfs_entity "inject_err" "cxgb4" "$busp"
 
-	get_debugfs_entity "intr_cnt" "cxgb4"
+	get_debugfs_entity "intr_cnt" "cxgb4" "$busp"
 
-	get_debugfs_entity "intr_holdoff" "cxgb4"
+	get_debugfs_entity "intr_holdoff" "cxgb4" "$busp"
 
-	get_debugfs_entity "l2t" "cxgb4"
+	get_debugfs_entity "l2t" "cxgb4" "$busp"
 
-	get_debugfs_entity "sensors" "cxgb4"
+	get_debugfs_entity "sensors" "cxgb4" "$busp"
 
-	get_debugfs_entity "trace0" "cxgb4"
+	get_debugfs_entity "trace0" "cxgb4" "$busp"
 
-	get_debugfs_entity "trace1" "cxgb4"
+	get_debugfs_entity "trace1" "cxgb4" "$busp"
 
-	get_debugfs_entity "trace2" "cxgb4"
+	get_debugfs_entity "trace2" "cxgb4" "$busp"
 
-	get_debugfs_entity "trace3" "cxgb4"
+	get_debugfs_entity "trace3" "cxgb4" "$busp"
 
-	get_debugfs_entity "uld" "cxgb4"
+	get_debugfs_entity "uld" "cxgb4" "$busp"
 
-	get_debugfs_entity "use_backdoor" "cxgb4"
+	get_debugfs_entity "use_backdoor" "cxgb4" "$busp"
 
-	get_debugfs_entity "tls" "cxgb4"
+	get_debugfs_entity "tls" "cxgb4" "$busp"
 
-	get_debugfs_entity "crypto" "cxgb4"
+	get_debugfs_entity "crypto" "cxgb4" "$busp"
 
-	get_debugfs_entity "trace_rss" "cxgb4"
+	get_debugfs_entity "trace_rss" "cxgb4" "$busp"
 
-	echo -e "-------------------------------------------------"
+	print_once "-e"  "-------------------------------------------------"
 }
 
 function collect_iw_cxgb4_debugfs
 {
-	echo -e "\n-------------------------------------------------"
-	echo "Collecting iw_cxgb4 debugfs"
+	local busp
+	local res
+
+	busp="$1"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "Collecting iw_cxgb4 debugfs"
 	res=$(is_driver_loaded "iw_cxgb4")
 	if [[ $res == 0 ]]; then
-		echo "iw_cxgb4 driver is not loaded"
-		echo -e "-------------------------------------------------"
+		print_once "iw_cxgb4 driver is not loaded"
+		print_once "-e" "-------------------------------------------------"
 		return
 	fi
 
-	get_debugfs_entity "eps" "iw_cxgb4"
+	get_debugfs_entity "eps" "iw_cxgb4" "$busp"
 
-	get_debugfs_entity "fids" "iw_cxgb4"
+	get_debugfs_entity "fids" "iw_cxgb4" "$busp"
 
-	get_debugfs_entity "qps" "iw_cxgb4"
+	get_debugfs_entity "qps" "iw_cxgb4" "$busp"
 
-	get_debugfs_entity "stags" "iw_cxgb4"
+	get_debugfs_entity "stags" "iw_cxgb4" "$busp"
 
-	get_debugfs_entity "stats" "iw_cxgb4"	
-	echo -e "-------------------------------------------------"
+	get_debugfs_entity "stats" "iw_cxgb4" "$busp"
+	print_once "-e" "-------------------------------------------------"
 }
 
 function collect_csiostor_pf5_debugfs
 {
+	local driver busp
+	local res
+
+	busp="$1"
 	driver="csiostor"
-	echo -e "\n-------------------------------------------------"
-	echo "Collecting $driver pf 5 debugfs"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "Collecting $driver pf 5 debugfs"
 	res=$(is_driver_loaded $driver)
 	if [[ $res == 0 ]]; then
-		echo "$driver driver is not loaded"
-		echo -e "-------------------------------------------------"
+		print_once "$driver driver is not loaded"
+		print_once "-e" "-------------------------------------------------"
 		return
 	fi
 
-	get_debugfs_entity "dump_vaddr" $driver
-	get_debugfs_entity "hw" $driver
-	get_debugfs_entity "hw_stats" $driver
-	get_debugfs_entity "iscsi_sessions" $driver
-	get_debugfs_entity "sge_queue_entry" $driver
-	get_debugfs_entity "sge_queues" $driver
-	get_debugfs_entity "trace_buf" $driver
+	get_debugfs_entity "dump_vaddr" $driver "$busp"
+	get_debugfs_entity "hw" $driver "$busp"
+	get_debugfs_entity "hw_stats" $driver "$busp"
+	get_debugfs_entity "iscsi_sessions" $driver "$busp"
+	get_debugfs_entity "sge_queue_entry" $driver "$busp"
+	get_debugfs_entity "sge_queues" $driver "$busp"
+	get_debugfs_entity "trace_buf" $driver "$busp"
 
-	echo -e "-------------------------------------------------"
+	print_once "-e" "-------------------------------------------------"
 }
 
 function collect_csiostor_pf6_debugfs
 {
+	local driver busp
+	local res
+
+	busp="$1"
 	driver="csiostor"
-	echo -e "\n-------------------------------------------------"
-	echo "Collecting $driver pf 6 debugfs"
+	print_once "-e" "\n-------------------------------------------------"
+	print_once "Collecting $driver pf 6 debugfs"
 	res=$(is_driver_loaded $driver)
 	if [[ $res == 0 ]]; then
-		echo "$driver driver is not loaded"
-		echo -e "-------------------------------------------------"
+		print_once "$driver driver is not loaded"
+		print_once "-e" "-------------------------------------------------"
 		return
 	fi
 
-	get_debugfs_entity "fcfs" $driver
-	get_debugfs_entity "lnodes" $driver
-	get_debugfs_entity "lnodes_stats" $driver
-	get_debugfs_entity "rnodes" $driver
-	get_debugfs_entity "rnodes_stats" $driver
+	get_debugfs_entity "fcfs" $driver "$busp"
+	get_debugfs_entity "lnodes" $driver "$busp"
+	get_debugfs_entity "lnodes_stats" $driver "$busp"
+	get_debugfs_entity "rnodes" $driver "$busp"
+	get_debugfs_entity "rnodes_stats" $driver "$busp"
 
-	echo -e "-------------------------------------------------"
+	print_once "-e" "-------------------------------------------------"
 }
 
 function change_pf
 {
+	local extract_debugfs_dir busp pf
+
+	busp="$2"
 	if [[ $# -eq 1 ]] ; then
 		pf=$1
 	else
@@ -852,6 +1232,7 @@ function change_pf
 	busp=$(echo $busp | sed s/'\w*$'//)$pf
 	extract_debugfs_dir=$debugfs_dir/$busp
 	mkdir -p $extract_debugfs_dir
+	echo "$busp"
 }
 
 echo "Collecting OS debug logs at $logfile"
@@ -880,65 +1261,6 @@ for chbusinf in ${fbusid[*]} ; do
 	done
 done
 
-cmdlog "date"
-
-printhead "SYSTEM_INFO"
-
-writelog ""
-writelog "Kernel : $kver"
-writelog "Distro : $distro"
-writelog "Architecture : $arch"
-writelog "Chelsio Adapters : $adaptype"
-writelog "Chelsio Interfaces : ${chint[*]}"
-
-cmdlog "cat /proc/cpuinfo"
-cmdlog "cat /proc/meminfo"
-
-printhead "NETWORK_INFO"
-cmdlog "netstat -rn"
-cmdlog "netstat -s"
-cmdlog "netstat -l"
-cmdlog "arp -an"
-
-writelog ${chint[*]}
-for eths in ${chint[*]} ; do
-	cmdlog "ethtool -S $eths"
-	cmdlog "ethtool -i $eths"
-	cmdlog "ethtool $eths"
-done
-cmdlog "ifconfig -a"
-
-printhead "DRIVER_INFO"
-cmdlog "dmidecode"
-cmdlog "dmesg"
-cmdlog "lspci -vvv"
-cmdlog "lspci -tv"
-cmdlog "lsmod"
-
-# Collect FW config files corresponding to the adapters selected
-declare -a adap_ver
-for buspath in ${fbuspath[*]} ; do
-	device_file=$buspath/device
-	if [ ! -f $device_file ] ; then
-		echo -e "$device_file not found, skipping FW config file collection"
-		continue
-	fi
-	adap_ver+=($(cat $device_file | cut -c3))
-done
-# Avoid collecting same config file multiple times in case multiple
-# adapters are present(for eg: two T5 cards)
-adap_ver=($(IFS=$'\n'; echo "${adap_ver[*]}" | sort -u))
-for version in ${adap_ver[*]}; do
-	cfg_file="/lib/firmware/cxgb4/t${version}-config.txt"
-	if [[ -f $cfg_file ]] ; then
-		cmdlog "cat $cfg_file"
-	fi
-done
-
-cp -f $(ls /var/log/messages* -t | head -10) $varlogdir
-
-create_tar_package
-
 CUDBG_BIN=$(which cudbg_app 2>/dev/null)
 if [[ $? -ne 0 ]] ; then 
 	CUDBG_BIN=${PWD}/bin/cudbg_app
@@ -952,40 +1274,65 @@ if [[ $? -ne 0 ]] ; then
 	fi
 fi
 
+DD_BIN="$(which dd)"
+
 get_toe_intfs
+
+function collect_debug_entities
+{
+	local buspath
+	local busp
+
+	buspath="$1"
+	busp=$(basename $buspath)
+
+	# collecting debugfs from pf 4
+	busp=$(change_pf 4 "$busp")
+
+	collect_cudbg_entities "$buspath"
+
+	collect_cudbg_edc "$buspath"
+
+	collect_cxgb4_debugfs "$busp"
+
+	collect_iw_cxgb4_debugfs "$busp"
+
+	collect_toe_sys_files "$busp"
+
+	collect_qdesc "$busp"
+
+	# collecting debugfs from pf 5
+	busp=$(change_pf 5 "$busp")
+	collect_csiostor_pf5_debugfs "$busp"
+
+	# collecting debugfs from pf 6
+	busp=$(change_pf 6 "$busp")
+	collect_csiostor_pf6_debugfs "$busp"
+}
 
 echo -e "\nCollecting Adapter logs for bus id's ${fbusid[*]} using CUDBG... \n"
 for buspath in ${fbuspath[*]} ; do
-	busp=$(basename $buspath)
-	cudbgbusp=$(echo $busp | sed s/'\w*$'//)
-	cudbgbusp+=$cudbgmbox
-
 	if ! [[ -d $debugfs_path ]]
 	then
 		mount none $debugfs_path -t debugfs
 	fi
 
-	# collecting debugfs from pf 4
-	change_pf 4
-
-	collect_cxgb4_debugfs
-
-	collect_cudbg_entities $buspath
-
-	collect_iw_cxgb4_debugfs	
-
-	collect_toe_sys_files
-
-	collect_qdesc
-
-	collect_cudbg_mc_entities $buspath
-
-	# collecting debugfs from pf 5
-	change_pf 5
-	collect_csiostor_pf5_debugfs
-
-	# collecting debugfs from pf 6
-	change_pf 6
-	collect_csiostor_pf6_debugfs
+	collect_debug_entities "$buspath" &
+	global_print_once=1
 done
-create_tar_package "_with_cudbg" 
+wait
+
+global_print_once=""
+ncpus="$(grep -c ^processor /proc/cpuinfo)"
+max_cpu=8
+per_adap_cpu=$(($ncpus<$max_cpu?$ncpus:$max_cpu))
+cur_cpuid=0
+for buspath in ${fbuspath[*]} ; do
+	collect_cudbg_mc_entities "$buspath" "$cur_cpuid" "$per_adap_cpu" &
+	cur_cpuid=$(($cur_cpuid + $per_adap_cpu))
+	if [[ $cur_cpuid -ge $ncpus ]]; then
+		cur_cpuid=$(($cur_cpuid - $ncpus))
+	fi
+	global_print_once=1
+done
+wait
