@@ -468,6 +468,7 @@ declare -a cxgb4_debugfs_entities=(
 	'trace3'
 	'use_backdoor'
 	'trace_rss'
+	'tids'
 )
 
 function collect_cxgb4_debugfs
