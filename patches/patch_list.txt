@@ -87,6 +87,7 @@
 0086-kernel-panic.c-add-crash_kexec_post_notifiers-option.patch		f06e5153f4ae2e2f3b0300f0e260e40cb7fefd45
 0087-kernel-panic-kexec-fix-crash_kexec_post_notifiers-op.patch		5375b708f2547f70cd2bee2fd8663ab7035f9551
 0088-iw_cxgb4-Only-validate-the-MSN-for-successful-comple.patch 	f55688c45442bc863f40ad678c638785b26cdce6
+0089-iw_cxgb4-reflect-the-original-WR-opcode-in-drain-cqe.patch 	96a236ed286776554fbd227c6d2876fd3b5dc65d
 
 
 0001-cxgb4-update-base-for-adding-cudbg-support.patch			Not available in upstream.
