@@ -186,7 +186,6 @@ function cmdlog
 	else
 		$cmd >> $logfile
 	fi
-	sync
 }
 
 function mount_debugfs
