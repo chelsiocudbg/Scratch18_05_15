@@ -1,37 +1,29 @@
-From ac3bcdfb14367e2f5d60fcfddc985a30e60533ca Mon Sep 17 00:00:00 2001
+From 4ebe426804bf2d2ef73c6a63f9b779679ac1a778 Mon Sep 17 00:00:00 2001
 From: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
 Date: Mon, 6 Nov 2017 15:17:34 +0530
-Subject: [PATCH 3/4] cxgb4: collect cudbg debug logs during kernel crash
+Subject: [PATCH 2/3] cxgb4: collect cudbg debug logs during kernel crash
 
 Register panic notifier to collect cudbg logs during kernel panic.
 Also add support to collect cudbg logs in kdump kernel.
 
 Signed-off-by: Rahul Lakkireddy <rahul.lakkireddy@chelsio.com>
 ---
- drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c   |  10 ++
+ drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c   |   9 ++
  drivers/net/ethernet/chelsio/cxgb4/cxgb4.h       |   5 +
- drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c |   7 +-
- drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c  |  75 +++++++++++
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c |   2 +-
+ drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c  |  45 ++++++-
  drivers/net/ethernet/chelsio/cxgb4/t4_hw.c       | 155 ++++++++++++++++++++++-
- 5 files changed, 244 insertions(+), 8 deletions(-)
+ 5 files changed, 208 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
-index 243b7f65..fcd67f7e 100644
+index 4aa431ee..9cd74371 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cudbg_lib.c
-@@ -16,6 +16,7 @@
-  */
- 
- #include <linux/sort.h>
-+#include <linux/crash_dump.h>
- 
- #include "t4_regs.h"
- #include "cxgb4.h"
-@@ -2142,6 +2143,14 @@ int cudbg_collect_vpd_data(struct cudbg_init *pdbg_init,
+@@ -2118,6 +2118,14 @@ int cudbg_collect_vpd_data(struct cudbg_init *pdbg_init,
  	struct vpd_params vpd = { 0 };
  	int rc, ret;
  
-+	if (!is_kdump_kernel() && (padap->flags & K_CRASH)) {
++	if (padap->flags & K_CRASH) {
 +		memcpy(&vpd, &padap->params.vpd, sizeof(struct vpd_params));
 +		scfg_vers = padap->params.scfg_vers;
 +		vpd_vers = padap->params.vpd_vers;
@@ -40,9 +32,9 @@ index 243b7f65..fcd67f7e 100644
 +	}
 +
  	rc = t4_get_raw_vpd_params(padap, &vpd);
- 	if (rc)
+ 	if (rc < 0)
  		return rc;
-@@ -2178,6 +2187,7 @@ int cudbg_collect_vpd_data(struct cudbg_init *pdbg_init,
+@@ -2154,6 +2162,7 @@ int cudbg_collect_vpd_data(struct cudbg_init *pdbg_init,
  	if (rc)
  		return rc;
  
@@ -51,7 +43,7 @@ index 243b7f65..fcd67f7e 100644
  			    &temp_buff);
  	if (rc)
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
-index 7a0bf3dd..99fac850 100644
+index a6a95b13..6e05f10f 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4.h
 @@ -513,6 +513,7 @@ enum {                                 /* adapter flags */
@@ -74,19 +66,10 @@ index 7a0bf3dd..99fac850 100644
  
  /* Defined bit width of user definable filter tuples
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c
-index 2d7c61f2..2fb4e007 100644
+index 6d880dc5..122325c6 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_cudbg.c
-@@ -15,6 +15,8 @@
-  *
-  */
- 
-+#include <linux/crash_dump.h>
-+
- #include "t4_regs.h"
- #include "cxgb4.h"
- #include "cxgb4_cudbg.h"
-@@ -370,7 +372,7 @@ static void cxgb4_cudbg_collect_entity(struct cudbg_init *pdbg_init,
+@@ -372,7 +372,7 @@ static void cxgb4_cudbg_collect_entity(struct cudbg_init *pdbg_init,
  
  		/* Skip entities that won't fit in output buffer */
  		entity_size = cxgb4_get_entity_length(adap, e->entity);
@@ -95,26 +78,15 @@ index 2d7c61f2..2fb4e007 100644
  		    pdbg_init->outbuf_size - *tot_size - total_size) {
  			dev_warn(adap->pdev_dev, "No space for entity %s, Skipping",
  				 cxgb4_entity_string[e->entity]);
-@@ -494,7 +496,8 @@ int cxgb4_cudbg_collect_panic(struct adapter *adap, void *buf, u32 buf_size)
- 	cudbg_init.adap = adap;
- 	cudbg_init.outbuf = buf;
- 	cudbg_init.outbuf_size = size;
--	cudbg_init.use_flash = true;
-+	if (is_kdump_kernel())
-+		cudbg_init.use_flash = true;
- 	getnstimeofday(&ts);
- 	cudbg_init.time = ts.tv_sec;
- 	cudbg_init.hash_table = t4_alloc_mem(sizeof(unsigned char *) *
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
-index b30e04dd..26ade500 100644
+index b30e04dd..c6a66556 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/cxgb4_main.c
-@@ -3718,6 +3718,23 @@ static struct fw_info *find_fw_info(int chip)
+@@ -3718,6 +3718,22 @@ static struct fw_info *find_fw_info(int chip)
  	return NULL;
  }
  
-+#define MAX_DUMP_BUF_SIZE (150 * 1024 * 1024)
-+#define DUMP_BUF_SIZE (32 * 1024 * 1024)
++#define DUMP_BUF_SIZE (150 * 1024 * 1024)
 +
 +static int panic_notify(struct notifier_block *this, unsigned long event,
 +                       void *ptr)
@@ -133,21 +105,15 @@ index b30e04dd..26ade500 100644
  /*
   * Phase 0 of initialization: contact FW, obtain config, perform basic init.
   */
-@@ -4179,6 +4196,34 @@ static int adap_init0(struct adapter *adap)
+@@ -4179,6 +4195,28 @@ static int adap_init0(struct adapter *adap)
  	t4_init_sge_params(adap);
  	adap->flags |= FW_OK;
  	t4_init_tp_params(adap, true);
 +
 +	/* cudbg feature is only supported for T5/T6 cards for now */
 +	if (CHELSIO_CHIP_VERSION(adap->params.chip) >= CHELSIO_T5) {
-+		adap->dump_buf_size = MAX_DUMP_BUF_SIZE;
++		adap->dump_buf_size = DUMP_BUF_SIZE;
 +		adap->dump_buf = t4_alloc_mem(adap->dump_buf_size);
-+		if (!adap->dump_buf) {
-+			adap->dump_buf_size = DUMP_BUF_SIZE;
-+			adap->dump_buf =
-+				t4_alloc_mem(adap->dump_buf_size);
-+		}
-+
 +		if (!adap->dump_buf) {
 +			dev_err(adap->pdev_dev,
 +				"Not enough memory for debug buffers.\n"
@@ -168,38 +134,15 @@ index b30e04dd..26ade500 100644
  	return 0;
  
  	/*
-@@ -4927,6 +4972,30 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+@@ -4926,7 +4964,6 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+ 	if (err)
  		goto out_free_adapter;
  
- 
-+	/* If we're in kdump kernel, then collect cudbg logs before
-+	 * proceeding further.
-+	 */
-+	if (is_kdump_kernel() &&
-+	    CHELSIO_CHIP_VERSION(adapter->params.chip) >= CHELSIO_T5) {
-+		adapter->dump_buf_size = MAX_DUMP_BUF_SIZE;
-+		adapter->dump_buf = t4_alloc_mem(adapter->dump_buf_size);
-+		if (!adapter->dump_buf) {
-+			adapter->dump_buf_size = DUMP_BUF_SIZE;
-+			adapter->dump_buf =
-+				t4_alloc_mem(adapter->dump_buf_size);
-+		}
-+
-+		if (!adapter->dump_buf) {
-+			dev_err(&pdev->dev, "Couldn't allocate buffer for collecting logs.  Continuing.");
-+		} else {
-+			adapter->flags |= K_CRASH;
-+			cxgb4_cudbg_collect_panic(adapter,
-+						  adapter->dump_buf,
-+						  adapter->dump_buf_size);
-+			t4_free_mem(adapter->dump_buf);
-+		}
-+	}
-+
+-
  	if (!is_t4(adapter->params.chip)) {
  		s_qpp = (QUEUESPERPAGEPF0_S +
  			(QUEUESPERPAGEPF1_S - QUEUESPERPAGEPF0_S) *
-@@ -5231,6 +5300,12 @@ static void remove_one(struct pci_dev *pdev)
+@@ -5231,6 +5268,12 @@ static void remove_one(struct pci_dev *pdev)
  		pci_release_regions(pdev);
  		kfree(adapter->mbox_log);
  		synchronize_rcu();
@@ -213,7 +156,7 @@ index b30e04dd..26ade500 100644
  	} else
  		pci_release_regions(pdev);
 diff --git a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
-index 34bd92d0..6e1262b0 100644
+index 4a611586..492d4583 100644
 --- a/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
 +++ b/drivers/net/ethernet/chelsio/cxgb4/t4_hw.c
 @@ -255,6 +255,143 @@ static void t4_record_mbox(struct adapter *adapter,
@@ -390,7 +333,7 @@ index 34bd92d0..6e1262b0 100644
  	}
  }
  
-@@ -7713,8 +7858,6 @@ static void init_link_config(struct link_config *lc, unsigned int pcaps,
+@@ -7708,8 +7853,6 @@ static void init_link_config(struct link_config *lc, unsigned int pcaps,
  	}
  }
  
